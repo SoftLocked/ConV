@@ -18,3 +18,11 @@ limits before long-running deployment.
 Tests cover direct/indirect timeouts, helper acknowledgements, suspicion
 refutation, stale updates and stale suspicion deadlines. Background browser
 throttling and real WAN failure-detection behavior remain to be measured.
+
+Dissemination now sends at most three new-observation forwards, and periodic
+sync gossip carries at most three observations to three neighbors. Production
+native/browser hosts supply fresh shuffled probe traversals. Native `/quit`
+sends a voluntary leave. Observations are capped at 1,024 sessions; helper relay
+tracking is capped at 256 entries with expiry. The full browser room remains
+capped at eight peers. Long-lived native churn/address retirement still needs
+further measurement.

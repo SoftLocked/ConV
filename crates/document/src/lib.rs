@@ -1,6 +1,7 @@
 //! Indexed sequence CRDT with an independent reference model. See docs/crdt-spec.md.
 //! No transport, clocks, randomness, persistence, or browser dependencies.
 
+pub mod bounded;
 pub mod reference;
 
 use serde::{Deserialize, Serialize};
@@ -39,7 +40,9 @@ pub struct TextAnchor {
 
 #[derive(Serialize, Deserialize)]
 struct DocumentState {
+    #[serde(deserialize_with = "bounded::vector::<_, _, 2_097_152>")]
     records: Vec<Insertion>,
+    #[serde(deserialize_with = "bounded::vector::<_, _, 2_097_152>")]
     deleted: Vec<ElementId>,
 }
 impl From<Document> for DocumentState {
@@ -62,6 +65,7 @@ pub enum DocumentError {
     ConflictingInsertion(ElementId),
     SelfAnchor(ElementId),
     InvalidPredecessorOrder(ElementId),
+    TooManyPendingDependencies,
 }
 
 fn validate_order(record: &Insertion, parent: Option<&Insertion>) -> Result<(), DocumentError> {
@@ -93,6 +97,9 @@ impl Document {
         self.insertions.values()
     }
 
+    pub fn deleted_ids(&self) -> impl Iterator<Item = &ElementId> {
+        self.deletions.iter()
+    }
     pub fn is_empty(&self) -> bool {
         self.insertions.is_empty() && self.deletions.is_empty()
     }
@@ -120,6 +127,9 @@ impl Document {
                 state.pending.entry(anchor).or_default().insert(record.id);
             }
         }
+        if state.pending.values().map(BTreeSet::len).sum::<usize>() > 100_000 {
+            return Err(DocumentError::TooManyPendingDependencies);
+        }
         Ok(state)
     }
 
@@ -145,6 +155,27 @@ impl Document {
                     validate_order(&self.insertions[child], Some(record))?;
                 }
             }
+        }
+        let resolved: usize = other
+            .insertions
+            .keys()
+            .filter_map(|id| self.pending.get(id))
+            .map(BTreeSet::len)
+            .sum();
+        let added = other
+            .insertions
+            .values()
+            .filter(|record| {
+                !self.insertions.contains_key(&record.id)
+                    && record.anchor.is_some_and(|anchor| {
+                        !self.insertions.contains_key(&anchor)
+                            && !other.insertions.contains_key(&anchor)
+                    })
+            })
+            .count();
+        let pending = self.pending.values().map(BTreeSet::len).sum::<usize>() - resolved + added;
+        if pending > 100_000 {
+            return Err(DocumentError::TooManyPendingDependencies);
         }
         for record in other.insertions.values() {
             self.pending.remove(&record.id);
@@ -247,6 +278,7 @@ pub struct Writer {
 pub enum EditError {
     UnknownElement(ElementId),
     CounterExhausted,
+    TransactionTooLarge,
     InvalidDocument(DocumentError),
 }
 
@@ -299,6 +331,9 @@ impl Writer {
         if text.is_empty() {
             return Ok(Document::default());
         }
+        if text.chars().count() > 65_536 {
+            return Err(EditError::TransactionTooLarge);
+        }
         let sequence = self
             .sequence
             .checked_add(1)
@@ -342,6 +377,9 @@ impl Writer {
         }
         if ids.is_empty() {
             return Ok(Document::default());
+        }
+        if ids.len() > 65_536 {
+            return Err(EditError::TransactionTooLarge);
         }
         let sequence = self
             .sequence
@@ -411,3 +449,5 @@ mod tests {
         assert_eq!(first.text(), "ba");
     }
 }
+
+pub mod experiment;

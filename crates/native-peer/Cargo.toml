@@ -14,3 +14,4 @@ clap.workspace = true
 anyhow.workspace = true
 uuid.workspace = true
 serde_json.workspace = true
+postcard.workspace = true

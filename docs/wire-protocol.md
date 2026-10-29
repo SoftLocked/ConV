@@ -21,3 +21,24 @@ Periodic summaries retry missing mutations after a dropped message or incomplete
 transfer. Targeted missing-chunk retransmission and snapshot bootstrap are still
 pending. Large summaries and individual mutations currently share the 8 MiB
 message cap. Limits are prototype defaults and must be tested under load.
+
+Snapshot offers are followed by an explicit request and a complete retained-
+history snapshot. Snapshot messages use the same bounded chunk reassembler;
+installing one stages and merges all mutations with existing local edits. A lost
+snapshot falls back to periodic range repair, which retransmits complete
+missing mutation messages. A first chunk never acknowledges the whole transfer.
+
+Edit gossip forwards each newly accepted mutation once, to at most two peers.
+Periodic summary exchanges are bidirectional (Summary/SummaryReply) without an
+unbounded echo loop. Hosts batch small mutations for 20 ms in a bounded outbox
+(256 queued items, 8 MiB serialized mutation bytes); batches hold at most 32
+mutations and normally target sub-frame payloads. Discarded immediate gossip
+remains in retained history. Control messages bypass the outbox; browser control
+uses a separate unordered channel with no retransmissions. Bulk document data
+uses reliable ordered channels. Both channels share WebRTC congestion resources.
+
+Declared sequence/map counts are checked before reserving decoder storage.
+Mutation records/deletion targets are capped at 65,536 each, range requests at
+64, snapshots at 100,000 mutations, and backups at 1,000,000 mutations/64 MiB.
+Sparse summary entries and historical writer counts are each capped at 65,536.
+These admission limits reject excess input without discarding integrated state.

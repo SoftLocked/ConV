@@ -243,6 +243,7 @@ dependencies = [
  "clap",
  "conv-document",
  "conv-protocol",
+ "postcard",
  "serde_json",
  "tokio",
  "uuid",
@@ -285,6 +286,7 @@ dependencies = [
 name = "conv-wasm"
 version = "0.1.0"
 dependencies = [
+ "conv-document",
  "conv-protocol",
  "postcard",
  "serde",

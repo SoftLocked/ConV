@@ -2,7 +2,7 @@
 use axum::{
     Router,
     extract::{
-        Query, State,
+        ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode},
@@ -18,6 +18,7 @@ use tokio::sync::{Mutex, mpsc};
 struct App {
     rooms: Arc<Mutex<BTreeMap<String, BTreeMap<String, Client>>>>,
     origin: String,
+    joins: Arc<Mutex<BTreeMap<std::net::IpAddr, (Instant, u16)>>>,
 }
 #[derive(Clone)]
 struct Client {
@@ -65,9 +66,22 @@ fn valid_id(id: &str) -> bool {
 async fn join(
     State(app): State<App>,
     Query(join): Query<Join>,
+    ConnectInfo(address): ConnectInfo<std::net::SocketAddr>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    {
+        let mut rates = app.joins.lock().await;
+        rates.retain(|_, (started, _)| started.elapsed().as_secs() < 60);
+        if !rates.contains_key(&address.ip()) && rates.len() >= 4_096 {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        let (_, count) = rates.entry(address.ip()).or_insert((Instant::now(), 0));
+        if *count >= 120 {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        *count += 1;
+    }
     if headers.get("origin").and_then(|h| h.to_str().ok()) != Some(app.origin.as_str()) {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -203,6 +217,7 @@ async fn main() -> anyhow::Result<()> {
     let bind = std::env::var("CONV_SIGNAL_BIND").unwrap_or_else(|_| "127.0.0.1:3001".into());
     let app = App {
         rooms: Arc::default(),
+        joins: Arc::default(),
         origin: std::env::var("CONV_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".into()),
     };
     let router = Router::new()
@@ -212,10 +227,13 @@ async fn main() -> anyhow::Result<()> {
         .with_state(app);
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     println!("ConV signaling listening on {bind}");
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
     Ok(())
 }

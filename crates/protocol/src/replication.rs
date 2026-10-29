@@ -4,15 +4,58 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 
-use conv_document::{Document, EditError, ElementId, Writer};
+use conv_document::{Document, EditError, ElementId, Insertion, Writer};
 
 use crate::{MutationSummary, Range};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "MutationState", into = "MutationState")]
 pub struct Mutation {
     pub replica: u128,
     pub sequence: u64,
     pub fragment: Document,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MutationState {
+    replica: u128,
+    sequence: u64,
+    #[serde(deserialize_with = "conv_document::bounded::vector::<_, _, 65_536>")]
+    records: Vec<Insertion>,
+    #[serde(deserialize_with = "conv_document::bounded::vector::<_, _, 65_536>")]
+    deleted: Vec<ElementId>,
+}
+impl From<Mutation> for MutationState {
+    fn from(mutation: Mutation) -> Self {
+        Self {
+            replica: mutation.replica,
+            sequence: mutation.sequence,
+            records: mutation.fragment.insertions().cloned().collect(),
+            deleted: mutation.fragment.deleted_ids().copied().collect(),
+        }
+    }
+}
+impl TryFrom<MutationState> for Mutation {
+    type Error = &'static str;
+    fn try_from(value: MutationState) -> Result<Self, Self::Error> {
+        if value.sequence == 0
+            || value.records.iter().any(|record| {
+                record.id.replica != value.replica || record.id.sequence != value.sequence
+            })
+        {
+            return Err("invalid mutation identity");
+        }
+        let fragment = Document::fragment(value.records, value.deleted)
+            .map_err(|_| "invalid mutation fragment")?;
+        if fragment.is_empty() {
+            return Err("empty mutation");
+        }
+        Ok(Self {
+            replica: value.replica,
+            sequence: value.sequence,
+            fragment,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,6 +63,7 @@ pub enum ReplicationError {
     InvalidSequence,
     InvalidMutationFragment,
     InvalidTextRange,
+    TooManyWriterSessions,
     ConflictingMutation { replica: u128, sequence: u64 },
     Document(EditError),
 }
@@ -31,7 +75,10 @@ pub struct SyncRequest {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CausalSummary(BTreeMap<u128, MutationSummary>);
+pub struct CausalSummary(
+    #[serde(deserialize_with = "conv_document::bounded::map::<_, _, _, 65_536>")]
+    BTreeMap<u128, MutationSummary>,
+);
 
 impl CausalSummary {
     pub fn for_replica(&self, replica: u128) -> Option<&MutationSummary> {
@@ -78,6 +125,9 @@ impl Replica {
         }
     }
 
+    pub fn local_sequence(&self) -> u64 {
+        self.writer.sequence()
+    }
     pub fn writer_id(&self) -> u128 {
         self.replica
     }
@@ -115,6 +165,7 @@ impl Replica {
         if text.is_empty() {
             return Ok(None);
         }
+        self.check_writer_capacity(self.replica)?;
         let fragment = self
             .writer
             .insert(anchor, text)
@@ -126,6 +177,7 @@ impl Replica {
         if ids.is_empty() {
             return Ok(None);
         }
+        self.check_writer_capacity(self.replica)?;
         let fragment = self
             .writer
             .delete(ids)
@@ -182,6 +234,12 @@ impl Replica {
         Ok(mutations)
     }
 
+    fn check_writer_capacity(&self, replica: u128) -> Result<(), ReplicationError> {
+        if !self.summary.0.contains_key(&replica) && self.summary.0.len() >= 65_536 {
+            return Err(ReplicationError::TooManyWriterSessions);
+        }
+        Ok(())
+    }
     fn record_local(&mut self, fragment: Document) -> Mutation {
         let sequence = self.writer.sequence();
         let mutation = Mutation {
@@ -209,7 +267,10 @@ impl Replica {
         if mutation.sequence == 0 {
             return Err(ReplicationError::InvalidSequence);
         }
+        self.check_writer_capacity(mutation.replica)?;
         if mutation.fragment.is_empty()
+            || mutation.fragment.insertions().count() > 65_536
+            || mutation.fragment.deleted_ids().count() > 65_536
             || mutation.fragment.insertions().any(|record| {
                 record.id.replica != mutation.replica || record.id.sequence != mutation.sequence
             })

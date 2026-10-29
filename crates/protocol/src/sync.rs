@@ -9,11 +9,21 @@ pub enum Message {
     Hello,
     Swim(SwimMessage),
     Summary(CausalSummary),
-    Request(Vec<SyncRequest>),
+    Request(
+        #[serde(deserialize_with = "conv_document::bounded::vector::<_, _, 64>")] Vec<SyncRequest>,
+    ),
     Mutation(Mutation),
-    SnapshotOffer { mutations: usize, bytes: usize },
+    SnapshotOffer {
+        mutations: usize,
+        bytes: usize,
+    },
     SnapshotRequest,
-    Snapshot(Vec<Mutation>),
+    Snapshot(
+        #[serde(deserialize_with = "conv_document::bounded::vector::<_, _, 100_000>")]
+        Vec<Mutation>,
+    ),
+    SummaryReply(CausalSummary),
+    Batch(#[serde(deserialize_with = "conv_document::bounded::vector::<_, _, 32>")] Vec<Mutation>),
 }
 
 #[derive(Clone, Debug)]
@@ -46,16 +56,27 @@ pub struct SyncPeer {
     config: SyncConfig,
     swim: Swim,
     gossip_cursor: usize,
+    send_cursor: usize,
 }
 
 impl SyncPeer {
     pub fn new(id: u128, neighbors: Vec<u128>, config: SyncConfig) -> Self {
-        assert!(config.interval_ms > 0 && config.max_ranges > 0 && config.max_reply_items > 0);
+        assert!(
+            config.interval_ms > 0
+                && config.max_ranges > 0
+                && config.max_ranges <= 64
+                && config.max_reply_items > 0
+        );
         Self::from_replica(Replica::new(id), neighbors, config)
     }
 
     pub fn from_replica(replica: Replica, neighbors: Vec<u128>, config: SyncConfig) -> Self {
-        assert!(config.interval_ms > 0 && config.max_ranges > 0 && config.max_reply_items > 0);
+        assert!(
+            config.interval_ms > 0
+                && config.max_ranges > 0
+                && config.max_ranges <= 64
+                && config.max_reply_items > 0
+        );
         let id = replica.writer_id();
         let mut swim = Swim::new(id);
         swim.set_probe_order(neighbors.clone());
@@ -65,6 +86,7 @@ impl SyncPeer {
             config,
             swim,
             gossip_cursor: 0,
+            send_cursor: 0,
         }
     }
     pub fn merge_backup(
@@ -79,6 +101,22 @@ impl SyncPeer {
             self.swim.set_probe_order(neighbors.clone());
         }
         self.neighbors = neighbors;
+    }
+    pub fn leave(&mut self) -> Vec<Effect> {
+        self.swim
+            .leave()
+            .into_iter()
+            .map(|send| Effect::Send {
+                to: send.to,
+                message: Message::Swim(send.message),
+            })
+            .collect()
+    }
+    pub fn needs_probe_order(&self) -> bool {
+        self.swim.needs_probe_order()
+    }
+    pub fn reshuffle_probes(&mut self, order: Vec<u128>) {
+        self.swim.set_probe_order(order);
     }
     pub fn membership(&self) -> &Swim {
         &self.swim
@@ -98,9 +136,19 @@ impl SyncPeer {
         &self.replica
     }
 
-    fn broadcast(&self, message: Message) -> Vec<Effect> {
+    fn fanout(&mut self, message: Message, exclude: Option<u128>) -> Vec<Effect> {
+        if self.neighbors.is_empty() {
+            return Vec::new();
+        }
+        let start = self.send_cursor % self.neighbors.len();
+        self.send_cursor = self.send_cursor.wrapping_add(2);
         self.neighbors
             .iter()
+            .cycle()
+            .skip(start)
+            .take(self.neighbors.len())
+            .filter(|&&to| Some(to) != exclude)
+            .take(2)
             .map(|&to| Effect::Send {
                 to,
                 message: message.clone(),
@@ -110,7 +158,7 @@ impl SyncPeer {
 
     /// Call once to start, then once for each requested sync timer firing.
     pub fn on_sync_timer(&mut self) -> Vec<Effect> {
-        let mut effects = self.broadcast(Message::Summary(self.replica.summary().clone()));
+        let mut effects = self.fanout(Message::Summary(self.replica.summary().clone()), None);
         let observations: Vec<_> = self.swim.members().values().copied().collect();
         if !self.neighbors.is_empty() && !observations.is_empty() {
             for member in observations
@@ -146,7 +194,7 @@ impl SyncPeer {
         text: &str,
     ) -> Result<Vec<Effect>, ReplicationError> {
         Ok(match self.replica.insert(anchor, text)? {
-            Some(mutation) => self.broadcast(Message::Mutation(mutation)),
+            Some(mutation) => self.fanout(Message::Mutation(mutation), None),
             None => Vec::new(),
         })
     }
@@ -160,18 +208,35 @@ impl SyncPeer {
         let mutations = self.replica.edit_utf16(start, end, text)?;
         Ok(mutations
             .into_iter()
-            .flat_map(|m| self.broadcast(Message::Mutation(m)))
+            .flat_map(|m| self.fanout(Message::Mutation(m), None))
             .collect())
     }
 
     pub fn delete(&mut self, ids: &[ElementId]) -> Result<Vec<Effect>, ReplicationError> {
         Ok(match self.replica.delete(ids)? {
-            Some(mutation) => self.broadcast(Message::Mutation(mutation)),
+            Some(mutation) => self.fanout(Message::Mutation(mutation), None),
             None => Vec::new(),
         })
     }
 
+    fn request_missing(&self, from: u128, remote: &CausalSummary) -> Vec<Effect> {
+        let requests = self
+            .replica
+            .summary()
+            .missing_from(remote, self.config.max_ranges);
+        if requests.is_empty() {
+            Vec::new()
+        } else {
+            vec![Effect::Send {
+                to: from,
+                message: Message::Request(requests),
+            }]
+        }
+    }
     fn snapshot_message(&self) -> Option<(Message, usize)> {
+        if self.replica.history_len() > 100_000 {
+            return None;
+        }
         let message = Message::Snapshot(self.replica.snapshot());
         let size = postcard::to_allocvec(&message).ok()?.len();
         (size < crate::wire::MESSAGE_LIMIT - 16).then_some((message, size))
@@ -246,18 +311,14 @@ impl SyncPeer {
                 Ok(Vec::new())
             }
             Message::Summary(remote) => {
-                let requests = self
-                    .replica
-                    .summary()
-                    .missing_from(&remote, self.config.max_ranges);
-                if requests.is_empty() {
-                    return Ok(Vec::new());
-                }
-                Ok(vec![Effect::Send {
+                let mut effects = self.request_missing(from, &remote);
+                effects.push(Effect::Send {
                     to: from,
-                    message: Message::Request(requests),
-                }])
+                    message: Message::SummaryReply(self.replica.summary().clone()),
+                });
+                Ok(effects)
             }
+            Message::SummaryReply(remote) => Ok(self.request_missing(from, &remote)),
             Message::Request(requests) => {
                 let mut effects = Vec::new();
                 for request in requests.into_iter().take(self.config.max_ranges) {
@@ -276,9 +337,19 @@ impl SyncPeer {
                 }
                 Ok(effects)
             }
+            Message::Batch(mutations) => {
+                let mut effects = Vec::new();
+                for mutation in mutations {
+                    effects.extend(self.receive_at(from, Message::Mutation(mutation), now)?);
+                }
+                Ok(effects)
+            }
             Message::Mutation(mutation) => {
-                self.replica.receive(&mutation)?;
-                Ok(Vec::new())
+                if self.replica.receive(&mutation)? {
+                    Ok(self.fanout(Message::Mutation(mutation), Some(from)))
+                } else {
+                    Ok(Vec::new())
+                }
             }
         }
     }

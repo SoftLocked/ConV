@@ -45,3 +45,22 @@ fn rejects_cross_room_corruption_and_excessive_chunk_count() {
         Err(WireError::InvalidFrame)
     ));
 }
+
+#[test]
+fn oversized_request_counts_are_rejected_before_allocating_entries() {
+    use conv_protocol::{Range, replication::SyncRequest};
+    let message = Message::Request(vec![
+        SyncRequest {
+            replica: 1,
+            range: Range { start: 1, end: 1 }
+        };
+        65
+    ]);
+    let frames = encode(1, 1, 1, &message).unwrap();
+    let mut decoder = Reassembler::new(1);
+    let mut rejected = false;
+    for frame in frames {
+        rejected |= matches!(decoder.receive(0, &frame), Err(WireError::InvalidMessage));
+    }
+    assert!(rejected);
+}

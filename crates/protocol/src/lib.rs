@@ -25,6 +25,7 @@ pub struct MutationSummary {
 #[derive(Deserialize)]
 struct SeenState {
     prefix: u64,
+    #[serde(deserialize_with = "conv_document::bounded::set::<_, _, 65_536>")]
     sparse: BTreeSet<u64>,
 }
 impl TryFrom<SeenState> for MutationSummary {
@@ -132,3 +133,5 @@ pub mod wire;
 
 pub mod backup;
 pub mod membership;
+
+pub mod outbox;

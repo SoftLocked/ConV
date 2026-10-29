@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
+use conv_protocol::outbox::Outbox;
 use conv_protocol::{
     replication::Replica,
     sync::{Effect, Message, SyncConfig, SyncPeer},
@@ -116,6 +117,8 @@ async fn main() -> Result<()> {
     let mut sequence = 0;
     let mut frame = [0_u8; 1_201];
     let start = Instant::now();
+    let mut outbox = Outbox::default();
+    let mut batch_timer = tokio::time::interval(std::time::Duration::from_millis(20));
     let mut timer = tokio::time::interval(std::time::Duration::from_secs(1));
     let mut membership_timer = tokio::time::interval(std::time::Duration::from_millis(100));
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -128,13 +131,22 @@ async fn main() -> Result<()> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
+            _ = batch_timer.tick() => {
+                let effects = outbox.flush();
+                dispatch(&socket, &args, writer, &mut sequence, &addresses, effects).await?;
+            }
             _ = membership_timer.tick() => {
-                let effects = peer.on_membership_timer(start.elapsed().as_millis() as u64);
+                if peer.needs_probe_order() {
+                    let mut order: Vec<_> = addresses.keys().copied().collect();
+                    order.sort_by_cached_key(|_| uuid::Uuid::new_v4());
+                    peer.reshuffle_probes(order);
+                }
+                let effects = outbox.push(peer.on_membership_timer(start.elapsed().as_millis() as u64));
                 dispatch(&socket, &args, writer, &mut sequence, &addresses, effects).await?;
             }
             _ = timer.tick() => {
                 for &seed in &args.seed { send(&socket, args.room, writer, &mut sequence, seed, &Message::Hello).await?; }
-                dispatch(&socket, &args, writer, &mut sequence, &addresses, peer.on_sync_timer()).await?;
+                dispatch(&socket, &args, writer, &mut sequence, &addresses, outbox.push(peer.on_sync_timer())).await?;
                 incoming.expire(start.elapsed().as_millis() as u64);
             }
             received = socket.recv_from(&mut frame) => {
@@ -142,8 +154,12 @@ async fn main() -> Result<()> {
                 if let Ok(Some((sender, message))) = incoming.receive(start.elapsed().as_millis() as u64, &frame[..len]) {
                     if sender == writer { continue; }
                     if addresses.len() >= 256 && !addresses.contains_key(&sender) { continue; }
-                    addresses.insert(sender, address);
-                    peer.set_neighbors(addresses.keys().copied().collect());
+                    let new_peer = addresses.insert(sender, address).is_none();
+                    if new_peer {
+                        let mut order: Vec<_> = addresses.keys().copied().collect();
+                        order.sort_by_cached_key(|_| uuid::Uuid::new_v4());
+                        peer.set_neighbors(order);
+                    }
                     let before = peer.replica().history_len();
                     match peer.receive_at(sender, message, start.elapsed().as_millis() as u64) {
                         Ok(effects) => {
@@ -151,7 +167,7 @@ async fn main() -> Result<()> {
                                 save(&peer, args.room, &args.state)?;
                                 println!("{}", peer.replica().document().text());
                             }
-                            dispatch(&socket, &args, writer, &mut sequence, &addresses, effects).await?;
+                            dispatch(&socket, &args, writer, &mut sequence, &addresses, outbox.push(effects)).await?;
                         }
                         Err(error) => eprintln!("Rejected message: {error:?}"),
                     }
@@ -162,10 +178,10 @@ async fn main() -> Result<()> {
                     Some(line) if line == "/quit" => break,
                     Some(line) if line == "/show" => println!("{}", peer.replica().document().text()),
                     Some(line) => {
-                        let anchor = peer.replica().document().visible_elements().last().map(|&(id, _)| id);
-                        let effects = peer.insert(anchor, &(line + "\n")).map_err(|e| anyhow!("edit: {e:?}"))?;
+                        let end = peer.replica().document().text().encode_utf16().count();
+                        let effects = peer.edit_utf16(end, end, &(line + "\n")).map_err(|e| anyhow!("edit: {e:?}"))?;
                         save(&peer, args.room, &args.state)?;
-                        dispatch(&socket, &args, writer, &mut sequence, &addresses, effects).await?;
+                        dispatch(&socket, &args, writer, &mut sequence, &addresses, outbox.push(effects)).await?;
                         println!("Saved on this device");
                     }
                     None => input_open = false,
@@ -174,5 +190,16 @@ async fn main() -> Result<()> {
         }
     }
     save(&peer, args.room, &args.state)?;
+    dispatch(
+        &socket,
+        &args,
+        writer,
+        &mut sequence,
+        &addresses,
+        outbox.flush(),
+    )
+    .await?;
+    let effects = peer.leave();
+    dispatch(&socket, &args, writer, &mut sequence, &addresses, effects).await?;
     Ok(())
 }

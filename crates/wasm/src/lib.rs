@@ -1,4 +1,5 @@
 //! Browser bindings for the same replication engine as native peers.
+use conv_protocol::outbox::{Outbox, control};
 use conv_protocol::{
     replication::Replica,
     sync::{Effect, Message, SyncConfig, SyncPeer},
@@ -18,6 +19,7 @@ fn parse_id(value: &str) -> Result<u128, JsValue> {
 struct Outbound {
     to: String,
     data: Vec<u8>,
+    control: bool,
 }
 #[derive(Serialize)]
 struct Update {
@@ -33,6 +35,8 @@ pub struct Engine {
     writer: u128,
     incoming: Reassembler,
     counter: u64,
+    outbox: Outbox,
+    batching: bool,
 }
 
 #[wasm_bindgen]
@@ -51,13 +55,22 @@ impl Engine {
             writer,
             incoming: Reassembler::new(room),
             counter: 0,
+            outbox: Outbox::default(),
+            batching: true,
         })
     }
     pub fn merge_backup(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
         self.peer.merge_backup(self.room, bytes).map_err(error)
     }
+    pub fn backup_room(bytes: &[u8]) -> Result<String, JsValue> {
+        Ok(format!(
+            "{:032x}",
+            conv_protocol::backup::room_id(bytes).map_err(error)?
+        ))
+    }
     pub fn editor_lane(&mut self) {
         self.counter = 1_u64 << 63;
+        self.batching = false;
     }
     pub fn history_len(&self) -> usize {
         self.peer.replica().history_len()
@@ -74,6 +87,18 @@ impl Engine {
     pub fn resolve_anchor(&self, bytes: &[u8]) -> Result<usize, JsValue> {
         let anchor = postcard::from_bytes(bytes).map_err(error)?;
         Ok(self.peer.replica().document().resolve_anchor(anchor))
+    }
+    pub fn needs_probe_order(&self) -> bool {
+        self.peer.needs_probe_order()
+    }
+    pub fn reshuffle_probes(&mut self, ids: JsValue) -> Result<(), JsValue> {
+        let ids: Vec<String> = serde_wasm_bindgen::from_value(ids).map_err(error)?;
+        self.peer.reshuffle_probes(
+            ids.iter()
+                .map(|id| parse_id(id))
+                .collect::<Result<_, _>>()?,
+        );
+        Ok(())
     }
     pub fn text(&self) -> String {
         self.peer.replica().document().text()
@@ -130,11 +155,21 @@ impl Engine {
             effects.extend(self.peer.on_sync_timer());
         }
         self.incoming.expire(now_ms);
-        self.output(effects)
+        let mut immediate = self.outbox.push(effects);
+        immediate.extend(self.outbox.flush());
+        self.encode_output(immediate)
     }
 }
 impl Engine {
     fn output(&mut self, effects: Vec<Effect>) -> Result<JsValue, JsValue> {
+        let effects = if self.batching {
+            self.outbox.push(effects)
+        } else {
+            effects
+        };
+        self.encode_output(effects)
+    }
+    fn encode_output(&mut self, effects: Vec<Effect>) -> Result<JsValue, JsValue> {
         let mut outbound = Vec::new();
         for effect in effects {
             if let Effect::Send { to, message } = effect {
@@ -146,6 +181,7 @@ impl Engine {
                     outbound.push(Outbound {
                         to: format!("{to:032x}"),
                         data,
+                        control: control(&message),
                     });
                 }
             }
@@ -156,5 +192,44 @@ impl Engine {
             outbound,
         })
         .map_err(error)
+    }
+}
+
+#[wasm_bindgen]
+pub struct MergeExperiment {
+    workload: conv_document::experiment::MergeWorkload,
+}
+#[wasm_bindgen]
+impl MergeExperiment {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        visible_bytes: usize,
+        samples: usize,
+        deletion_heavy: bool,
+        seed: u64,
+    ) -> Result<MergeExperiment, JsValue> {
+        Ok(Self {
+            workload: conv_document::experiment::MergeWorkload::new(
+                visible_bytes,
+                samples,
+                deletion_heavy,
+                seed,
+            )
+            .map_err(error)?,
+        })
+    }
+    pub fn merge_one(&mut self) -> Result<bool, JsValue> {
+        self.workload.merge_one().map_err(error)
+    }
+    pub fn verify(&self) -> bool {
+        self.workload.verify()
+    }
+    pub fn tombstones(&self) -> usize {
+        self.workload.document().deleted_ids().count()
+    }
+    pub fn serialized_bytes(&self) -> Result<usize, JsValue> {
+        postcard::to_allocvec(self.workload.document())
+            .map(|bytes| bytes.len())
+            .map_err(error)
     }
 }

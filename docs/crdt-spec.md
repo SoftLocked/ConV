@@ -84,3 +84,10 @@ text. This supplements exhaustive small-state merge-law tests.
 Editor replacements use UTF-16 boundaries and split large inserts/deletes into
 complete mutations of at most 4,096 scalar elements/targets. Snapshot bootstrap
 stages all received mutations and joins them atomically with current local state.
+
+Runtime admission is bounded to 100,000 unresolved elements. A merge exceeding
+that budget is rejected atomically and remains absent from receipt summaries;
+remote retained history can retry after predecessors arrive. This is a resource
+limit on accepting a fragment, separate from the unbounded mathematical join.
+Convergence requires enough storage/capacity to accept the eventual repaired
+state. Existing state and history are never discarded to satisfy that limit.

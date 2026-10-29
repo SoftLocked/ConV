@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 struct Backup {
     version: u8,
     room: u128,
+    #[serde(deserialize_with = "conv_document::bounded::vector::<_, _, 1_000_000>")]
     mutations: Vec<Mutation>,
 }
 
@@ -19,6 +20,9 @@ pub enum BackupError {
 
 impl Replica {
     pub fn backup(&self, room: u128) -> Result<Vec<u8>, BackupError> {
+        if self.history_len() > 1_000_000 {
+            return Err(BackupError::Invalid);
+        }
         let payload = postcard::to_allocvec(&Backup {
             version: 1,
             room,
@@ -82,4 +86,19 @@ impl Replica {
         }
         Ok(replica)
     }
+}
+
+pub fn room_id(bytes: &[u8]) -> Result<u128, BackupError> {
+    if bytes.len() < 10 || bytes.len() > 64 * 1024 * 1024 || &bytes[..6] != b"CVBK01" {
+        return Err(BackupError::Invalid);
+    }
+    if crc32fast::hash(&bytes[10..]) != u32::from_le_bytes(bytes[6..10].try_into().unwrap()) {
+        return Err(BackupError::Invalid);
+    }
+    let ((version, room), _): ((u8, u128), _) =
+        postcard::take_from_bytes(&bytes[10..]).map_err(|_| BackupError::Invalid)?;
+    if version != 1 {
+        return Err(BackupError::Invalid);
+    }
+    Ok(room)
 }

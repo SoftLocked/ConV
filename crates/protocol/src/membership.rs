@@ -82,6 +82,9 @@ impl Swim {
     pub fn members(&self) -> &BTreeMap<u128, Member> {
         &self.members
     }
+    pub fn needs_probe_order(&self) -> bool {
+        !self.order.is_empty() && self.cursor >= self.order.len()
+    }
     pub fn set_probe_order(&mut self, order: Vec<u128>) {
         self.order = order.into_iter().filter(|&id| id != self.id).collect();
         self.cursor = 0;
@@ -106,6 +109,12 @@ impl Swim {
             .collect()
     }
     pub fn observe(&mut self, member: Member, now: u64) -> Vec<Send> {
+        if member.id != self.id
+            && !self.members.contains_key(&member.id)
+            && self.members.len() >= 1_024
+        {
+            return Vec::new();
+        }
         if member.id == self.id && member.status >= Status::Suspect && member.status != Status::Left
         {
             let own = self.members.get_mut(&self.id).unwrap();
@@ -166,7 +175,18 @@ impl Swim {
         {
             let mut probe = self.pending.take().unwrap();
             if !probe.indirect {
-                for &helper in self.order.iter().filter(|&&id| id != probe.target).take(3) {
+                for &helper in self
+                    .order
+                    .iter()
+                    .filter(|&&id| {
+                        id != probe.target
+                            && self
+                                .members
+                                .get(&id)
+                                .is_some_and(|member| member.status == Status::Alive)
+                    })
+                    .take(3)
+                {
                     output.push(Send {
                         to: helper,
                         message: SwimMessage::PingReq {

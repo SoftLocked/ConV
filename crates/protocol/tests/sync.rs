@@ -84,3 +84,22 @@ fn snapshot_bootstrap_preserves_edits_made_while_it_arrives() {
         50
     );
 }
+
+#[test]
+fn each_node_forwards_new_information_once_with_bounded_fanout() {
+    let mut source = SyncPeer::new(1, vec![2, 3, 4, 5], SyncConfig::default());
+    let outgoing = source.insert(None, "x").unwrap();
+    assert_eq!(outgoing.len(), 2);
+    let Effect::Send { message, .. } = outgoing[0].clone() else {
+        panic!("expected delta")
+    };
+    let mut receiver = SyncPeer::new(2, vec![1, 3, 4, 5], SyncConfig::default());
+    let forwards = receiver.receive(1, message.clone()).unwrap();
+    assert_eq!(forwards.len(), 2);
+    assert!(
+        forwards
+            .iter()
+            .all(|effect| matches!(effect, Effect::Send { to, .. } if *to != 1))
+    );
+    assert!(receiver.receive(1, message).unwrap().is_empty());
+}

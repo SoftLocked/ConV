@@ -1,5 +1,6 @@
 //! Scheduled in-memory protocol messages. No node reads another node's state.
 use conv_document::ElementId;
+use conv_protocol::outbox::Outbox;
 use conv_protocol::wire::{Reassembler, encode};
 use conv_protocol::{
     replication::ReplicationError,
@@ -11,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 enum Event {
     Timer(usize),
     MembershipTimer(usize),
+    BatchTimer(usize),
     Deliver {
         from: usize,
         to: usize,
@@ -45,6 +47,7 @@ pub struct SyncNetwork {
     random: u64,
     transfer: u64,
     incoming: Vec<Reassembler>,
+    outboxes: Vec<Outbox>,
     faults: Faults,
     pub dropped: u64,
     pub requests_delivered: u64,
@@ -74,6 +77,7 @@ impl SyncNetwork {
             serial: 0,
             random: seed,
             transfer: 0,
+            outboxes: (0..count).map(|_| Outbox::default()).collect(),
             incoming: (0..count).map(|_| Reassembler::new(1)).collect(),
             faults,
             dropped: 0,
@@ -82,6 +86,7 @@ impl SyncNetwork {
         for index in 0..count {
             network.enqueue(0, Event::Timer(index));
             network.enqueue(0, Event::MembershipTimer(index));
+            network.enqueue(20, Event::BatchTimer(index));
         }
         network
     }
@@ -113,6 +118,10 @@ impl SyncNetwork {
     }
 
     fn apply(&mut self, from: usize, effects: Vec<Effect>) {
+        let immediate = self.outboxes[from].push(effects);
+        self.emit(from, immediate);
+    }
+    fn emit(&mut self, from: usize, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
                 Effect::ScheduleSync { after_ms } => self.enqueue(after_ms, Event::Timer(from)),
@@ -179,6 +188,11 @@ impl SyncNetwork {
             let ((at, _), event) = self.events.pop_first().unwrap();
             self.now = at;
             match event {
+                Event::BatchTimer(peer) => {
+                    let effects = self.outboxes[peer].flush();
+                    self.emit(peer, effects);
+                    self.enqueue(20, Event::BatchTimer(peer));
+                }
                 Event::MembershipTimer(peer) => {
                     let effects = self.peers[peer].on_membership_timer(self.now);
                     self.apply(peer, effects);
