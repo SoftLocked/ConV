@@ -32,8 +32,9 @@ and idempotent. Canonical equality includes invisible records and tombstones.
 Locally generated anchors must already be known. Each insertion must point to
 root or an element with an earlier transaction timestamp, or an earlier offset
 in its own transaction. This forbids cycles. A receiver retains unresolved
-records and validates these relationships when dependencies arrive. Limits,
-wire validation, and writer allocation are not implemented in the reference yet.
+records and validates these relationships when dependencies arrive. A self
+anchor and an invalid parent order are rejected atomically. Limits, wire
+validation, and writer allocation are not implemented in the reference yet.
 
 ## Sequence order
 

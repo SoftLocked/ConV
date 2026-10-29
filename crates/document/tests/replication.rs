@@ -154,3 +154,58 @@ fn every_delivery_order_handles_missing_dependencies_and_deletes() {
 fn join_ref(state: Document, fragment: &Document) -> Document {
     join(state, fragment)
 }
+
+#[test]
+fn rejects_self_anchor_and_cycle() {
+    use conv_document::DocumentError;
+    let self_anchor = Insertion {
+        id: id(1, 1, 0),
+        anchor: Some(id(1, 1, 0)),
+        logical_time: 1,
+        value: 'a',
+    };
+    assert_eq!(
+        Document::fragment([self_anchor], []).unwrap_err(),
+        DocumentError::SelfAnchor(id(1, 1, 0))
+    );
+    let a = Insertion {
+        id: id(1, 1, 0),
+        anchor: Some(id(2, 1, 0)),
+        logical_time: 1,
+        value: 'a',
+    };
+    let b = Insertion {
+        id: id(2, 1, 0),
+        anchor: Some(a.id),
+        logical_time: 1,
+        value: 'b',
+    };
+    assert!(matches!(
+        Document::fragment([a, b], []),
+        Err(DocumentError::InvalidPredecessorOrder(_))
+    ));
+}
+
+#[test]
+fn late_predecessor_validation_is_atomic() {
+    use conv_document::DocumentError;
+    let parent = Insertion {
+        id: id(1, 1, 0),
+        anchor: None,
+        logical_time: 10,
+        value: 'p',
+    };
+    let child = Insertion {
+        id: id(2, 1, 0),
+        anchor: Some(parent.id),
+        logical_time: 9,
+        value: 'c',
+    };
+    let mut state = Document::fragment([child.clone()], []).unwrap();
+    let before = state.clone();
+    assert_eq!(
+        state.merge(&Document::fragment([parent], []).unwrap()),
+        Err(DocumentError::InvalidPredecessorOrder(child.id))
+    );
+    assert_eq!(state, before);
+}

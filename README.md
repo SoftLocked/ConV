@@ -26,6 +26,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Validation: workspace tests, formatting, and Clippy pass on Rust 1.90.0.
 The tests include merge algebra over exhaustive small-state combinations,
+invalid predecessor rejection,
 reordered/duplicated fragments, conflicting IDs, two- and three-peer partitions,
 100 seeded delivery schedules, bootstrap during editing, and a 5,000-mutation
 reconnect. These are correctness checks, not measured network benchmarks.

@@ -27,38 +27,68 @@ pub struct Document {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ConflictingInsertion(pub ElementId);
+pub enum DocumentError {
+    ConflictingInsertion(ElementId),
+    SelfAnchor(ElementId),
+    InvalidPredecessorOrder(ElementId),
+}
+
+fn validate(records: &BTreeMap<ElementId, Insertion>) -> Result<(), DocumentError> {
+    for record in records.values() {
+        let Some(anchor) = record.anchor else {
+            continue;
+        };
+        if anchor == record.id {
+            return Err(DocumentError::SelfAnchor(record.id));
+        }
+        let Some(parent) = records.get(&anchor) else {
+            continue;
+        };
+        let earlier_transaction = parent.logical_time < record.logical_time;
+        let earlier_offset = parent.logical_time == record.logical_time
+            && parent.id.replica == record.id.replica
+            && parent.id.sequence == record.id.sequence
+            && parent.id.offset < record.id.offset;
+        if !earlier_transaction && !earlier_offset {
+            return Err(DocumentError::InvalidPredecessorOrder(record.id));
+        }
+    }
+    Ok(())
+}
 
 impl Document {
-    /// Construct a fragment. Duplicate identities must have identical records.
-    /// Dependency/order validation belongs at the protocol boundary (not built yet).
+    /// Construct a fragment. Missing predecessors remain pending until merged.
     pub fn fragment(
         records: impl IntoIterator<Item = Insertion>,
         deletions: impl IntoIterator<Item = ElementId>,
-    ) -> Result<Self, ConflictingInsertion> {
+    ) -> Result<Self, DocumentError> {
         let mut state = Self::default();
         for record in records {
             if let Some(existing) = state.insertions.get(&record.id)
                 && existing != &record
             {
-                return Err(ConflictingInsertion(record.id));
+                return Err(DocumentError::ConflictingInsertion(record.id));
             }
             state.insertions.insert(record.id, record);
         }
         state.deletions.extend(deletions);
+        validate(&state.insertions)?;
         Ok(state)
     }
 
     /// Join valid states, rejecting conflicting IDs before changing any state.
-    pub fn merge(&mut self, other: &Self) -> Result<(), ConflictingInsertion> {
+    pub fn merge(&mut self, other: &Self) -> Result<(), DocumentError> {
         for (id, record) in &other.insertions {
             if let Some(existing) = self.insertions.get(id)
                 && existing != record
             {
-                return Err(ConflictingInsertion(*id));
+                return Err(DocumentError::ConflictingInsertion(*id));
             }
         }
-        self.insertions.extend(other.insertions.clone());
+        let mut combined = self.insertions.clone();
+        combined.extend(other.insertions.clone());
+        validate(&combined)?;
+        self.insertions = combined;
         self.deletions.extend(&other.deletions);
         Ok(())
     }
@@ -104,7 +134,7 @@ pub struct Writer {
 pub enum EditError {
     UnknownElement(ElementId),
     CounterExhausted,
-    Conflict(ConflictingInsertion),
+    InvalidDocument(DocumentError),
 }
 
 impl Writer {
@@ -128,7 +158,9 @@ impl Writer {
     }
 
     pub fn receive(&mut self, fragment: &Document) -> Result<(), EditError> {
-        self.document.merge(fragment).map_err(EditError::Conflict)?;
+        self.document
+            .merge(fragment)
+            .map_err(EditError::InvalidDocument)?;
         self.clock = self.clock.max(
             fragment
                 .insertions
@@ -175,8 +207,10 @@ impl Writer {
             });
             predecessor = Some(id);
         }
-        let delta = Document::fragment(records, []).map_err(EditError::Conflict)?;
-        self.document.merge(&delta).map_err(EditError::Conflict)?;
+        let delta = Document::fragment(records, []).map_err(EditError::InvalidDocument)?;
+        self.document
+            .merge(&delta)
+            .map_err(EditError::InvalidDocument)?;
         self.sequence = sequence;
         self.clock = clock;
         Ok(delta)
@@ -200,8 +234,11 @@ impl Writer {
             .clock
             .checked_add(1)
             .ok_or(EditError::CounterExhausted)?;
-        let delta = Document::fragment([], ids.iter().copied()).map_err(EditError::Conflict)?;
-        self.document.merge(&delta).map_err(EditError::Conflict)?;
+        let delta =
+            Document::fragment([], ids.iter().copied()).map_err(EditError::InvalidDocument)?;
+        self.document
+            .merge(&delta)
+            .map_err(EditError::InvalidDocument)?;
         self.sequence = sequence;
         self.clock = clock;
         Ok(delta)
