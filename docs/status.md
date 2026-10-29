@@ -11,7 +11,7 @@ not an assumption that every stretch performance target must be met.
 | 3. Local browser editor | WASM, CodeMirror, strict IndexedDB transactions, session-isolated snapshots, import/export/backup, cached offline shell | Real OS IME and physical-device storage checks |
 | 4. Browser collaboration | Eight-context mesh, stable cursor anchors, simultaneous/offline edits, selected-candidate forced TURN, signaling outage, refresh/rejoin | Separate physical networks, background/suspended tabs |
 | 5. Native scale and measurements | Real UDP sockets at 10/50/100/200 peers, multiple seeds, byte baseline, 1/100/1024 KiB histories, CPU/RSS sidecars, native/WASM merge and 1,000-trial reconnect reports | Multi-host measurements are not established |
-| 6. Package and publish | One-command local development, Docker Compose/Caddy/Coturn configuration, CI workflow, reproduction/report/demo scripts and docs | Container execution, fresh-clone verification, public host/domain, live deployment and physical-device demo |
+| 6. Package and publish | Fresh local clone with frozen/offline install, one-command startup, editing and reload verified; Docker Compose/Caddy/Coturn configuration, CI workflow, reports and demo scripts | Container execution, public host/domain, live deployment and physical-device demo |
 
 See [measured results](../benchmarks/reports/current/report.md),
 [measurement methods](benchmark-methodology.md), [architecture](architecture.md),

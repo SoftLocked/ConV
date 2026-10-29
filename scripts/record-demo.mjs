@@ -51,12 +51,12 @@ try {
   await first.press('Control+End'); await first.pressSequentially('\nSignaling is stopped. Our established peer connection still works.\n', { delay: 30 });
   await expect(second).toContainText('Our established peer connection still works');
   await alice.waitForTimeout(1_500);
-  await a.close(); await b.close();
-  await rename(await video.path(), new URL('browser-collaboration.webm', output));
+  await b.close();
   await stop(vite);
 
-  const lab = await browser.newContext({ viewport: { width: 1280, height: 800 }, recordVideo: { dir: fileURLToPath(output), size: { width: 1280, height: 800 } } });
-  const terminal = await lab.newPage(); const labVideo = terminal.video();
+  // Continue the same recording through the clearly labeled native scene.
+  const terminal = alice;
+  await terminal.goto('about:blank');
   await terminal.setContent('<html><head><title>ConV native UDP experiment</title></head><body style="background:#14291f;color:#e9f3e9;font:18px/1.8 monospace;padding:45px"><h1>ConV · native UDP experiment</h1><p>200 real UDP sockets on loopback. Tokio tasks in one process.</p><pre></pre></body></html>');
   const arguments_ = ['--peers', '200', '--writers', '10', '--seconds', '5', '--settle-seconds', '8', '--output', 'demo/native.json'];
   await terminal.locator('pre').evaluate((node, command) => { node.textContent = command; }, '$ conv-bench ' + arguments_.join(' ') + '\n\n');
@@ -70,8 +70,9 @@ try {
     active_window_mean_bytes_per_node_second: result.per_node.reduce((sum, row) => sum + row.active_window_bytes_per_second, 0) / result.peers,
     note: 'Loopback experiment only; not a browser or WAN result.' };
   await terminal.locator('pre').evaluate((node, text) => { node.textContent += '\n' + text; }, JSON.stringify(summary, null, 2));
-  await terminal.waitForTimeout(2_500); await lab.close(); await rename(await labVideo.path(), new URL('native-200.webm', output));
-  console.log('Recorded demo/browser-collaboration.webm and demo/native-200.webm');
+  await terminal.waitForTimeout(2_500); await a.close();
+  await rename(await video.path(), new URL('conv-demo.webm', output));
+  console.log('Recorded demo/conv-demo.webm and demo/native.json');
 } finally {
   if (browser) await browser.close();
   for (const child of children) await stop(child).catch(() => {});

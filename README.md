@@ -9,7 +9,8 @@ a room link cannot recover a document when no available replica retains a copy.
 
 The shared Rust engine also runs deterministic failure simulations and native
 UDP experiments with 200 replicas. Those are laboratory measurements, separate
-from browser capacity. The app is verified locally; public deployment, Docker
+from browser capacity. A fresh local Git clone was verified through frozen/offline dependency
+installation, `pnpm dev`, editing and durable reload. The app is verified locally; public deployment, Docker
 execution here and physical-device/WAN checks remain pending. See
 [delivery status](docs/status.md) and [limitations](docs/limitations.md).
 
@@ -60,7 +61,8 @@ Tests cover CRDT merge algebra/reference agreement, reordered/missing
 predecessors, exact causal holes, three-way partitions, 5,000-mutation reconnects,
 SWIM suspicion/refutation, bounded decoding, snapshot/local-edit races, two
 native processes with durable restart, Unicode, eight browser contexts,
-simultaneous/offline edits, IME events, backups and cached offline reload.
+simultaneous/offline edits, IME events, backups, aborted/quota-failed saves, independently offline tabs
+and cached offline reload.
 Browser contexts simulate independent clients; physical-device checks are listed
 [separately](docs/manual-validation.md). CI runs the same checks on GitHub; the
 workflow has not been executed remotely in this session.
@@ -122,8 +124,7 @@ recovery. [Methods](docs/benchmark-methodology.md) define the measurement window
 baselines, clock limits and reproducibility constraints. Targets remain separate
 from observations; the approximate 15 KB/s active traffic target was exceeded.
 
-The recording script creates `demo/browser-collaboration.webm` and
-`demo/native-200.webm`. It records real browser collaboration/offline recovery/
+The recording script creates `demo/conv-demo.webm` and `demo/native.json`. It records real browser collaboration/offline recovery/
 signaling outage, followed by a separately labeled real UDP experiment. Browser
 contexts in this recording are not physical devices. Generated videos stay local.
 
