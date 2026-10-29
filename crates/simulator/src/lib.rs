@@ -1,5 +1,5 @@
 //! Deterministic document delivery harness. Messages are in-memory fragments;
-//! encoded protocol messages, periodic repair, SWIM, and churn are future work.
+//! `sync_network` runs periodic range repair; encoding, SWIM, and churn are future work.
 use conv_document::{Document, EditError, Writer};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -86,3 +86,5 @@ impl Network {
             .all(|pair| pair[0].document() == pair[1].document())
     }
 }
+
+pub mod sync_network;

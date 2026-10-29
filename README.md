@@ -5,7 +5,7 @@ custom Rust replication engine shared by native peers and browser WebAssembly.
 
 Implementation is at the early replication milestone. The repository contains
 a draft CRDT specification, a reference document model, in-memory mutation
-history and range repair, and a deterministic delivery harness. There is no
+history, periodic range repair, and a deterministic delivery harness. There is no
 browser editor, transport encoding, network connection, persistence, or benchmark
 result yet.
 
@@ -38,16 +38,23 @@ Run the deterministic partition demonstration:
 cargo run -p conv-simulator --example partition
 ```
 
-The simulator's original partition example uses explicit full-state repair.
-The protocol crate now retains each local or received mutation and can answer
-requests for exact missing ranges. This repair path is tested in memory; it is
-not yet scheduled automatically or connected to encoded network messages.
+Run automatic repair after a simulated disconnection:
+
+```sh
+cargo run -p conv-simulator --example automatic_repair
+```
+
+The protocol peer emits sends and timer requests; the host provides the network
+and clock. Periodic summaries trigger missing-range requests and bounded replies.
+The simulator runs the same peer code using queued messages and a virtual clock,
+including seeded loss, duplication, reordering, and partitions. This path uses
+in-memory messages. The original `partition` example remains a full-state baseline.
 Virtual delivery times are scenario inputs, not performance results. The
 reference renderer prioritizes clarity and has quadratic traversal.
 
-Next: version and encode the mutation messages, add periodic repair scheduling,
-and integrate the same protocol peer into the deterministic network simulator.
-Then add snapshot bootstrap and SWIM membership.
+Next: version and encode network messages with validation and size limits, then
+add snapshot bootstrap and SWIM membership. Persistence and the browser editor
+follow the core protocol checks.
 
 Node 24 is already installed. pnpm, the WASM target, and browser dependencies will
 be configured during the browser milestone. Docker is unnecessary for core work;

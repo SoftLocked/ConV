@@ -18,4 +18,5 @@ name = "conv-simulator"
 version = "0.1.0"
 dependencies = [
  "conv-document",
+ "conv-protocol",
 ]
