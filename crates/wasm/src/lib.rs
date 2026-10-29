@@ -49,8 +49,10 @@ impl Engine {
             Some(bytes) => Replica::restore(writer, room, &bytes).map_err(error)?,
             None => Replica::new(writer),
         };
+        let mut peer = SyncPeer::from_replica(replica, Vec::new(), SyncConfig::default());
+        peer.use_full_mesh_room();
         Ok(Self {
-            peer: SyncPeer::from_replica(replica, Vec::new(), SyncConfig::default()),
+            peer,
             room,
             writer,
             incoming: Reassembler::new(room),

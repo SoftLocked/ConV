@@ -103,3 +103,18 @@ fn each_node_forwards_new_information_once_with_bounded_fanout() {
     );
     assert!(receiver.receive(1, message).unwrap().is_empty());
 }
+
+#[test]
+fn full_mesh_browser_mode_broadcasts_only_from_the_source() {
+    let mut source = SyncPeer::new(1, vec![2, 3, 4, 5, 6, 7, 8], SyncConfig::default());
+    source.use_full_mesh_room();
+    let outgoing = source.insert(None, "x").unwrap();
+    assert_eq!(outgoing.len(), 7);
+    let Effect::Send { message, .. } = outgoing[0].clone() else {
+        panic!("expected mutation")
+    };
+    let mut receiver = SyncPeer::new(2, vec![1, 3, 4, 5, 6, 7, 8], SyncConfig::default());
+    receiver.use_full_mesh_room();
+    assert!(receiver.receive(1, message).unwrap().is_empty());
+    assert_eq!(receiver.replica().document().text(), "x");
+}

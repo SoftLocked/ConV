@@ -42,3 +42,10 @@ sides, a signaling outage, forced local TURN (selected candidate verified),
 Chromium IME events, large paste/backup restore, and production service-worker
 offline reload. OS-level composition and separate physical networks still need
 manual verification.
+
+The browser full mesh uses source-only broadcast to its at most seven direct
+neighbors for live edits. This avoids the tail of probabilistic dissemination
+waiting for a one-second repair interval in a small foreground room. Receivers
+do not re-forward those live copies. Native larger groups retain two-neighbor
+gossip. Both modes share CRDT semantics, batching, snapshots, causal receipt and
+anti-entropy; the policy is an explicit adapter configuration.

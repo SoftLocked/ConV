@@ -28,7 +28,9 @@ installing one stages and merges all mutations with existing local edits. A lost
 snapshot falls back to periodic range repair, which retransmits complete
 missing mutation messages. A first chunk never acknowledges the whole transfer.
 
-Edit gossip forwards each newly accepted mutation once, to at most two peers.
+Native gossip mode forwards each newly accepted mutation once, to at most two peers.
+The eight-peer browser full mesh broadcasts from the source to its at most seven
+links and suppresses duplicate forwarding.
 Periodic summary exchanges are bidirectional (Summary/SummaryReply) without an
 unbounded echo loop. Hosts batch small mutations for 20 ms in a bounded outbox
 (256 queued items, 8 MiB serialized mutation bytes); batches hold at most 32

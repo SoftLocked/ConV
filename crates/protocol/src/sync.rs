@@ -57,6 +57,7 @@ pub struct SyncPeer {
     swim: Swim,
     gossip_cursor: usize,
     send_cursor: usize,
+    full_mesh_room: bool,
 }
 
 impl SyncPeer {
@@ -87,7 +88,13 @@ impl SyncPeer {
             swim,
             gossip_cursor: 0,
             send_cursor: 0,
+            full_mesh_room: false,
         }
+    }
+    /// Small browser rooms already have every direct link. Source broadcast
+    /// gives bounded one-hop visibility without waiting for probabilistic repair.
+    pub fn use_full_mesh_room(&mut self) {
+        self.full_mesh_room = true;
     }
     pub fn merge_backup(
         &mut self,
@@ -148,7 +155,7 @@ impl SyncPeer {
             .skip(start)
             .take(self.neighbors.len())
             .filter(|&&to| Some(to) != exclude)
-            .take(2)
+            .take(if self.full_mesh_room { 7 } else { 2 })
             .map(|&to| Effect::Send {
                 to,
                 message: message.clone(),
@@ -346,6 +353,9 @@ impl SyncPeer {
             }
             Message::Mutation(mutation) => {
                 if self.replica.receive(&mutation)? {
+                    if self.full_mesh_room && from != self.replica.writer_id() {
+                        return Ok(Vec::new());
+                    }
                     Ok(self.fanout(Message::Mutation(mutation), Some(from)))
                 } else {
                     Ok(Vec::new())
