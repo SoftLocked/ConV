@@ -1,0 +1,14 @@
+{
+  "user_seconds": 0.42,
+  "system_seconds": 0.08,
+  "max_rss_kib": 194928,
+  "elapsed_seconds": 0.51,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-merge",
+    "--deletion-heavy",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/raw-results/20261029T224234Z/merge-native-deletion-heavy.json"
+  ],
+  "returncode": 0,
+  "scope": "entire child process, including preparation and report serialization"
+}

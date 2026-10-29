@@ -14,8 +14,8 @@ the command fails. The raw report records convergence even on failure.
 
 All sent and received application frame bytes, including control and repair,
 are counted. IPv4/UDP header bytes are recorded separately using actual datagram
-counts. Per-node rates divide combined sent/received application bytes by the
-whole measured edit-plus-settle duration. Short burst experiments must not be
+counts. Reports separately divide combined sent/received application bytes by the
+active edit window and the whole edit-plus-settle duration. Short burst experiments must not be
 presented as steady-state rates. Sender-side bootstrap preparation is excluded.
 
 `--full-state` is restricted to two peers so snapshot receipt and delta receipt
@@ -30,15 +30,19 @@ from the preloaded steady-operation baseline.
 
 Merge timings include protocol bookkeeping around a decoded mutation, excluding
 network, decoding, rendering and backup writes. Native and WASM timings must be
-reported independently. Runs declare their warmup and host-randomness seed. Short runs and limited
-repetitions still make their percentiles exploratory. They do not establish the proposal's 100 KiB native/WASM p99 target.
+reported independently. Runs declare their warmup and host-randomness seed. These protocol timings are distinct from isolated document-merge timings below.
+Short network runs and limited repetitions make their percentiles exploratory.
 
-Reports contain source commit, dirty flag, toolchain, CPU, execution model,
-workload, duration, byte counts, merge samples and process memory. CPU-time
-profiling, multiple repeated seeds/warmups, deletion-heavy/idle workloads,
-1,000-trial reconnect distributions, and browser key-to-paint measurements remain
-required before publishing the corresponding performance claims. Proposed
-numbers stay pending until those measurement contracts are satisfied.
+Reports contain source commit, dirty flag, toolchain, CPU model, execution
+model, workload, duration, byte counts, merge samples and process memory.
+`scripts/run-experiments.py` runs serial workloads and writes GNU-time sidecars
+with user/system CPU seconds, elapsed seconds and peak RSS for the entire child
+process, including preparation and reporting. Whole-process CPU time divided by
+elapsed time gives average CPU cores consumed; it is not an active-window
+protocol-only utilisation measurement. Initial reports without sidecars did not
+collect CPU time. The current suite includes repeated seeds, deletion-heavy and
+idle workloads and 1,000 measured recovery trials. Raw data and published
+interpretation are under benchmarks/.
 
 ## Reconnect trials
 
@@ -82,3 +86,31 @@ Reports separate active-edit-window bandwidth from combined edit-plus-settle
 bandwidth. Use active-window rates when discussing steady writing; report
 recovery/settling bytes as well. Qualified steady-state conclusions require
 longer runs than these initial smoke/scale experiments.
+
+## Reproduction and interpretation
+
+Build release binaries with `cargo build --release -p conv-native-peer --bins`,
+then run `python3 scripts/run-experiments.py`. The timestamped result directory
+contains a manifest, every raw JSON report and matching `.resources.json`
+sidecars. `--quick` is useful for smoke checks but never qualifies recovery p99.
+Do not run browser tests, compilation or other heavy workloads concurrently.
+
+Run `python3 scripts/report-experiments.py --directory PATH` to generate Markdown
+and standalone SVG/PNG figures. Matplotlib is required. The renderer refuses
+dirty/failed results and mismatched byte-baseline pairs. It uses nearest-rank
+percentiles (`ceil(n*p)-1` as a zero-based index). Earlier 30-sample browser raw
+reports retain a floor-index p95 field; their distributions are preserved and
+the renderer recomputes the correct statistic from samples. The current browser
+measurement uses 100 sequential visibility samples. These are repeated edit
+observations in one room, not 100 independently established networks.
+
+Document-size runs use ten replicas at 100 KiB and two at 1 MiB to bound this
+host's memory consumption; 200-peer results use 1 KiB initial visible text. They
+do not establish 200-peer scaling at every document size. Large-paste correctness
+is tested with 8,200 emoji through the editor and backup restore.
+
+Native scale writers start on phase-aligned interval timers, a deliberate burst
+profile. Multiple seeds vary shuffled peer selection; they do not independently
+resample hardware or network conditions. The local browser rendering metric is
+a second-animation-frame proxy. Browser CPU/memory contention is not isolated
+per participant, and no physical display or WAN latency is inferred.

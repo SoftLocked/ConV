@@ -51,16 +51,21 @@ native = [load(f'native-{count}-1k') for count in [10, 50, 100, 200]]
 lines = ['# ConV measured experiments', '',
     'These are local laboratory measurements. Native peers are Tokio tasks in one process using independent IPv4 UDP sockets on loopback. Browser tests use independent Chromium contexts on the same host. No result is a WAN or multi-host claim.', '',
     'The active writers use phase-aligned interval timers after a common readiness barrier and declared warmup. Rate results include sent and received application frame bytes, control and repair; IPv4/UDP bytes are separate in the raw reports. Active-window rates and edit-plus-settle rates are distinct.', '',
-    '| Native peers | Mean active KB/s/node | p95 active KB/s/node | Mean whole-window KB/s/node | Process peak MiB | Commit |',
-    '| ---: | ---: | ---: | ---: | ---: | --- |']
+    '| Native peers | Mean active KB/s/node | p95 active KB/s/node | Mean whole-window KB/s/node | Process peak MiB | Mean CPU cores | Commit |',
+    '| ---: | ---: | ---: | ---: | ---: | ---: | --- |']
 counts, means, p95s = [], [], []
 for report, path in native:
     active = [row['active_window_bytes_per_second'] / 1000 for row in report['per_node']]
     whole = [row['bytes_per_second'] / 1000 for row in report['per_node']]
     counts.append(report['peers']); means.append(statistics.mean(active)); p95s.append(percentile(active, 95))
     peak = memory(report, path)
-    lines.append(f"| {report['peers']} | {statistics.mean(active):.2f} | {percentile(active,95):.2f} | {statistics.mean(whole):.2f} | {peak:.1f} | `{report['commit'][:7]}` |")
-lines += ['', 'All listed replicas converged with identical document state and causal receipt. Short runs are exploratory; active writers, edit cadence, warmup, settling time and actual mutation counts are retained in each raw report.', '',
+    resource_path = path.with_name(path.stem + '.resources.json')
+    cpu = 'not collected'
+    if resource_path.exists():
+        resource = json.loads(resource_path.read_text())
+        cpu = f"{(resource['user_seconds'] + resource['system_seconds']) / resource['elapsed_seconds']:.3f}"
+    lines.append(f"| {report['peers']} | {statistics.mean(active):.2f} | {percentile(active,95):.2f} | {statistics.mean(whole):.2f} | {peak:.1f} | {cpu} | `{report['commit'][:7]}` |")
+lines += ['', f'Raw source directory: `{args.directory.resolve().relative_to(ROOT)}`.', '', 'All listed replicas converged with identical document state and causal receipt. Short runs are exploratory; active writers, edit cadence, warmup, settling time and actual mutation counts are retained in each raw report.', '',
     '| Initial visible text | Peers | Actual mutations per replica | Serialized history bytes/node | Tombstones/node |', '| --- | ---: | ---: | ---: | ---: |']
 for names in [('native-10-1k',), ('native-10-100k', 'native-100k'), ('native-2-1m', 'native-1m')]:
     report, _ = load(*names); row = report['per_node'][0]
@@ -79,6 +84,7 @@ for kind, names in [('steady', ('baseline-delta','steady-delta','baseline-full-s
     reductions[kind] = 100 * (1 - total(delta) / total(full))
 lines += ['', '## Bandwidth baseline', '',
     f"The matched **two-peer** comparison reduced combined sent/received application bytes by **{reductions['steady']:.2f}%** with preloaded state and **{reductions['session']:.2f}%** in the short whole-session run including network bootstrap. These are separate claims. The whole-session result does not establish a universal 95% reduction.", '',
+    'The retained initial three-second whole-session comparison saved 93.27%; the profiled five-second comparison has more live edits over which to amortize bootstrap. Both raw pairs remain available. Savings depend on session length and history size.', '',
     'The baseline sends complete retained CRDT history at the same batching cadence/topology and UDP settings. This is a simple full-state baseline, not a comparison with established CRDT libraries.', '', '## Isolated merge', '',
     '| Native 100 KiB seed | Warmup / measured | p99 microseconds | Verified |', '| ---: | --- | ---: | --- |']
 for seed in range(3):
@@ -98,7 +104,7 @@ if browser_path.exists():
     lines += ['## Browser and WASM', '',
         f"Chromium {browser['browser']}, {browser['hardware']}; commit `{browser['commit'][:7]}`. Across three seeds on a 100 KiB document, the isolated WASM merge p99 clock-resolution upper bound was **{upper:.3f} ms**. Rendering, network, serialization and protocol history are excluded; the WASM boundary is included.", '',
         f"The 1 KiB trusted-keydown-to-second-animation-frame proxy had p95 **{browser['local_render_proxy']['p95_ms']:.2f} ms**. This is not physical-screen timing. Controller-observed visibility at all seven remote DOMs in an eight-context foreground room had p95 **{percentile(browser['remote_visibility']['samples_ms'], 95):.2f} ms**, including automation overhead, with one writer waiting for each edit to become visible before sending the next.", '']
-lines += ['## Interpretation', '',
+lines += ['## Browser dissemination comparison', '', 'The retained 30-edit fanout-two browser run had nearest-rank p95 visibility of 863.57 ms. Source broadcast within the bounded eight-peer mesh measured 188.16 ms in the next 30-edit run and 130.37 ms in the final 100-edit run. These are separate single-host runs, not a controlled WAN comparison. Earlier raw p95 fields used floor indexing; these figures are recomputed from the retained samples.', '', '## Interpretation', '',
     'The roughly 15 KB/s target is assessed using active-window traffic, rather than diluting it with quiet settling time. Keep exact measured values and workload phases in any resume/demo statement. Short trials and a single host limit generality. Production WAN, physical-device composition/background tabs, container execution and public deployment remain separate release gates.', '',
     'GNU-time resource sidecars, when present, record whole-process user/system CPU seconds and peak RSS, including preparation and report generation. They are distinct from the protocol measurement window. CPU utilisation was not collected for the initial reports lacking those sidecars.', '']
 (args.output / 'report.md').write_text('\n'.join(lines))

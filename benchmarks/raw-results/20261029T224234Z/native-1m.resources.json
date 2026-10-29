@@ -1,0 +1,23 @@
+{
+  "user_seconds": 4.01,
+  "system_seconds": 0.87,
+  "max_rss_kib": 1843516,
+  "elapsed_seconds": 12.84,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-bench",
+    "--peers",
+    "2",
+    "--writers",
+    "1",
+    "--seconds",
+    "3",
+    "--settle-seconds",
+    "5",
+    "--document-bytes",
+    "1048576",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/raw-results/20261029T224234Z/native-1m.json"
+  ],
+  "returncode": 0,
+  "scope": "entire child process, including preparation and report serialization"
+}

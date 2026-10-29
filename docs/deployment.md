@@ -46,7 +46,3 @@ Desktop's WSL integration is disabled in the current environment, so container
 images and this complete Compose deployment have not yet been built or launched
 here. No public host/domain or deployment account has been supplied. Publishing
 and physical-device/WAN validation remain explicit release gates.
-
-The Sites skill was used for local preview/verification guidance. The deployment
-stack here also requires long-running Rust signaling and TURN services, which
-must be provisioned on the selected host.

@@ -1,0 +1,24 @@
+{
+  "user_seconds": 0.06,
+  "system_seconds": 0.05,
+  "max_rss_kib": 30616,
+  "elapsed_seconds": 13.02,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-bench",
+    "--peers",
+    "2",
+    "--writers",
+    "1",
+    "--seconds",
+    "5",
+    "--settle-seconds",
+    "8",
+    "--network-bootstrap",
+    "--warmup-seconds",
+    "0",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/raw-results/20261029T224234Z/session-delta.json"
+  ],
+  "returncode": 0,
+  "scope": "entire child process, including preparation and report serialization"
+}

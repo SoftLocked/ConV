@@ -1,122 +1,141 @@
 # ConV
 
-A proposed local-first, peer-to-peer collaborative plain-text editor with a
-custom Rust replication engine shared by native peers and browser WebAssembly.
+ConV is a local-first collaborative plain-text editor. Each participant owns a
+Rust CRDT replica, edits immediately, and exchanges changes over WebRTC. It
+supports rooms of **up to eight browser participants**, offline edits, local
+recovery, remote cursors, plain-text import/export and history-preserving backups.
+There is no central document store. Signaling and STUN/TURN support connectivity;
+a room link cannot recover a document when no available replica retains a copy.
 
-The repository now includes the Rust document and replication core, encoded
-protocol simulations, durable native UDP peers, and a WASM/React/CodeMirror
-browser editor with WebRTC collaboration and local persistence. Hosted
-deployment, TURN verification, scale benchmarks and some recovery hardening are
-still pending. No proposed performance target is an established result.
+The shared Rust engine also runs deterministic failure simulations and native
+UDP experiments with 200 replicas. Those are laboratory measurements, separate
+from browser capacity. The app is verified locally; public deployment, Docker
+execution here and physical-device/WAN checks remain pending. See
+[delivery status](docs/status.md) and [limitations](docs/limitations.md).
 
-## Environment
+## Run locally
 
-Run commands inside this Linux/WSL environment. Install Rust using the official
-instructions at https://rust-lang.org/tools/install/, then open a new shell or
-run `source "$HOME/.cargo/env"`. The repository pins Rust 1.90.0; rustup will
-install that toolchain when a Cargo command is first run. A C linker is required
-(`cc` is already available in the inspected environment).
+Use Linux/WSL with Rust/rustup, a C linker/build tools, Node 24 and pnpm 10.28.2.
+The repository pins Rust 1.90.0. On Ubuntu/WSL, install build tools with
+`sudo apt-get install build-essential pkg-config`. After installing Rust, open a
+new terminal or run `source "$HOME/.cargo/env"`.
 
 From the repository root:
 
 ```sh
-cargo test --workspace
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+npm install -g pnpm@10.28.2
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-Validation: workspace tests, formatting, and Clippy pass on Rust 1.90.0.
-The tests include merge algebra over exhaustive small-state combinations,
-invalid predecessor rejection,
-reordered/duplicated fragments, conflicting IDs, two- and three-peer partitions,
-100 seeded delivery schedules, bootstrap during editing, and a 5,000-mutation
-reconnect. These are correctness checks, not measured network benchmarks.
+`pnpm dev` builds signaling and WASM, then runs both services. Open
+**http://127.0.0.1:5173** and copy the invite link into another browser profile.
+Ctrl+C stops the development services. Rust changes require restarting this
+command; TypeScript changes reload automatically. Localhost is suitable for local
+browser profiles; actual remote devices require an accessible HTTPS deployment.
 
-Run the deterministic partition demonstration:
+Wait for **Saved on this device** before closing. Browser storage can be cleared
+or evicted; export a **Backup** to preserve room identity, history and tombstones.
+Plain-text import starts a new room. Anyone with a room link can read and edit;
+the initial scope assumes cooperative participants. Generic undo is disabled
+until collaboration-aware undo is designed.
+
+## Check correctness
+
+```sh
+cargo fmt --all -- --check
+cargo test --locked --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo build -p conv-native-peer -p conv-signaling
+python3 tests/native/smoke.py
+./scripts/build-wasm.sh
+pnpm build
+pnpm --dir web exec playwright install --with-deps chromium
+pnpm test:browser
+```
+
+Tests cover CRDT merge algebra/reference agreement, reordered/missing
+predecessors, exact causal holes, three-way partitions, 5,000-mutation reconnects,
+SWIM suspicion/refutation, bounded decoding, snapshot/local-edit races, two
+native processes with durable restart, Unicode, eight browser contexts,
+simultaneous/offline edits, IME events, backups and cached offline reload.
+Browser contexts simulate independent clients; physical-device checks are listed
+[separately](docs/manual-validation.md). CI runs the same checks on GitHub; the
+workflow has not been executed remotely in this session.
+
+Forced TURN testing requires a running relay with expiring shared-secret
+credentials:
+
+```sh
+CONV_TURN_URL=turn:YOUR_TURN_HOST:3478 CONV_TURN_SECRET=YOUR_SERVER_SECRET pnpm test:browser
+```
+
+The relay test checks the selected ICE candidate. It is skipped when TURN is
+unconfigured. Keep the shared secret server-side; it is never a frontend build
+variable. The local verification used a disposable loopback Coturn server.
+
+## Native peers and failure demonstrations
+
+In separate terminals, use separate state files:
+
+```sh
+cargo run -p conv-native-peer --bin conv-native-peer -- --bind 127.0.0.1:7001 --seed 127.0.0.1:7002 --state alice.conv
+cargo run -p conv-native-peer --bin conv-native-peer -- --bind 127.0.0.1:7002 --seed 127.0.0.1:7001 --state bob.conv
+```
+
+Type lines to append, `/show` to inspect, and `/quit` to save and leave. Restart
+with the same state file to restore under a fresh writer identity. A stale
+`.conv.lock` may be removed only after its owning process has stopped. Native UDP
+is an unencrypted cooperative test transport.
 
 ```sh
 cargo run -p conv-simulator --example partition
-```
-
-Run automatic repair after a simulated disconnection:
-
-```sh
 cargo run -p conv-simulator --example automatic_repair
 ```
 
-The protocol peer emits sends and timer requests; the host provides the network
-and clock. Periodic summaries trigger missing-range requests and bounded replies.
-The simulator runs the same peer code using queued messages and a virtual clock,
-including seeded loss, duplication, reordering, and partitions. This path uses
-Postcard messages split into checksummed frames of at most 1,200 bytes. The original `partition` example remains a full-state baseline.
-Virtual delivery times are scenario inputs, not performance results. The
-renderer indexes insertion anchors for traversal.
+These examples use virtual clocks; their scenario delays are not performance
+results.
 
-Next: snapshot bootstrap, SWIM membership, and the local browser editor.
-
-Node 24 is already installed. pnpm, the WASM target, and browser dependencies will
-be configured during the browser milestone. Docker is unnecessary for core work;
-for the later signaling/TURN stack, enable this distro under Docker Desktop's
-Settings > Resources > WSL Integration.
-
-See [the CRDT draft](docs/crdt-spec.md) and
-[the full proposal](.claude/decentralized_text_editor_proposal.md).
-
-## Native UDP peers
-
-Use two terminals with separate state files:
+## Reproduce measurements and demo
 
 ```sh
-cargo run -p conv-native-peer -- --bind 127.0.0.1:7001 --seed 127.0.0.1:7002 --state alice.conv
-cargo run -p conv-native-peer -- --bind 127.0.0.1:7002 --seed 127.0.0.1:7001 --state bob.conv
+cargo build --release -p conv-native-peer --bins
+python3 scripts/run-experiments.py
+# Use the timestamped directory printed above:
+python3 scripts/report-experiments.py --directory benchmarks/raw-results/TIMESTAMP
+CONV_BENCH_BROWSER=1 pnpm --dir web test:browser --grep 'measure isolated'
+node scripts/record-demo.mjs
 ```
 
-Type a line to append it; `/show` prints the document and `/quit` saves and exits.
-Restart with the same state file to restore history under a fresh writer ID.
-Use distinct `--room` numbers to isolate rooms. UDP is a cooperative laboratory
-transport, without encryption or authenticated membership. Browser transport
-will use WebRTC. A process crash can leave a `.conv.lock` file; remove it only
-after confirming the owning process has stopped.
+Report rendering needs Python and Matplotlib (`python3 -m pip install matplotlib`
+in a virtual environment). Run benchmarks serially on an otherwise idle host.
+The runner retains raw reports and whole-process CPU/RSS sidecars; the full suite
+includes 1,000 recovery trials. `--quick` is a smoke check and cannot qualify a
+recovery p99. Run browser measurements before regenerating the report if you
+want the latest browser result included.
 
-```sh
-cargo build -p conv-native-peer
-python3 tests/native/smoke.py
-```
+[Measured results](benchmarks/reports/current/report.md) include native and WASM
+merge latency, traffic at 10–200 native peers, matched full-state comparisons and
+recovery. [Methods](docs/benchmark-methodology.md) define the measurement windows,
+baselines, clock limits and reproducibility constraints. Targets remain separate
+from observations; the approximate 15 KB/s active traffic target was exceeded.
 
-The smoke test uses two real processes on loopback, including durable restart
-and missing-edit recovery. It is not a scalability or WAN performance result.
+The recording script creates `demo/browser-collaboration.webm` and
+`demo/native-200.webm`. It records real browser collaboration/offline recovery/
+signaling outage, followed by a separately labeled real UDP experiment. Browser
+contexts in this recording are not physical devices. Generated videos stay local.
 
-## Browser development
+## Host the application
 
-Install pnpm (the version is pinned in `package.json`), then:
+[Deployment instructions](docs/deployment.md) provide Caddy HTTPS/WSS, ephemeral
+Rust signaling and Coturn with expiring credentials. Enable Docker Desktop's
+WSL integration before trying the Compose stack here. A public host, DNS names
+and TURN public IP are required for publication. Container execution and public
+hosting have not yet been verified in this environment.
 
-```sh
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.129 --locked
-pnpm install --frozen-lockfile
-./scripts/build-wasm.sh
-cargo build -p conv-signaling
-```
-
-Run signaling and Vite in separate terminals:
-
-```sh
-CONV_ORIGIN=http://127.0.0.1:5173 cargo run -p conv-signaling
-pnpm --dir web dev
-```
-
-Open `http://127.0.0.1:5173` and share its room link with another browser. Every
-browser keeps its own history in IndexedDB. Export plain text or a ConV backup
-before clearing browser storage. Importing plain text opens a new room; restoring
-a ConV backup preserves the old room identity and merges its retained history.
-
-```sh
-pnpm --dir web exec playwright install --with-deps chromium
-pnpm test:browser
-pnpm build
-```
-
-Browser tests currently cover Unicode/reload, two-context collaboration,
-page-close/rejoin repair, and simultaneous writers. Native and simulator checks
-remain independent. TURN relay, background devices and hosted deployment are
-not yet verified. See [browser architecture](docs/browser-architecture.md).
+For implementation details, read the [architecture](docs/architecture.md),
+[CRDT specification](docs/crdt-spec.md), [wire protocol](docs/wire-protocol.md),
+[browser adapter](docs/browser-architecture.md), [membership](docs/membership.md)
+and [original proposal](.claude/decentralized_text_editor_proposal.md).

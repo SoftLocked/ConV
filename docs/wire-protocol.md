@@ -1,7 +1,8 @@
 # ConV wire protocol v1
 
 Messages use Serde/Postcard. Each payload is an envelope containing version 1
-and a Summary, Request, or Mutation. Documents are decoded through validated
+and a Hello, membership/probe, Summary/SummaryReply, Request, Mutation/Batch,
+or snapshot offer/request/state message. Documents are decoded through validated
 insertion records and deletion markers. Summaries must be canonical.
 
 Every datagram is at most 1,200 bytes. Header (little endian): magic `CV01`
@@ -18,9 +19,10 @@ No mutation is acknowledged until the entire message decodes and merges.
 Checksums provide corruption detection, not authentication.
 
 Periodic summaries retry missing mutations after a dropped message or incomplete
-transfer. Targeted missing-chunk retransmission and snapshot bootstrap are still
-pending. Large summaries and individual mutations currently share the 8 MiB
-message cap. Limits are prototype defaults and must be tested under load.
+transfer. Incomplete messages are restarted through retained-range repair;
+targeted missing-chunk retransmission is not used. Summaries, mutations and
+snapshots share the 8 MiB message cap. Oversized bootstrap snapshots fall back
+to bounded mutation-range repair. These are explicit resource limits.
 
 Snapshot offers are followed by an explicit request and a complete retained-
 history snapshot. Snapshot messages use the same bounded chunk reassembler;

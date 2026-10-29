@@ -1,0 +1,76 @@
+{
+  "bootstrap": "initial history only on peer 1; bootstrap bytes included after the configured warmup",
+  "bootstrap_mutations": 1,
+  "commit": "d96b8cbf4659f61037bab9210749c11e7542966f",
+  "converged": true,
+  "delete_every": 0,
+  "document_bytes": 1024,
+  "edit_seconds": 3,
+  "edits_per_second_per_writer": 5,
+  "elapsed_seconds": 8.001807369,
+  "execution": "Tokio tasks in one process",
+  "hardware": "model name\t: Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+  "initialization_seconds": 0.000649107,
+  "limitations": [
+    "single-host loopback",
+    "merge includes protocol history bookkeeping",
+    "CPU-time profiling pending",
+    "not a browser or WAN result"
+  ],
+  "load_executed": true,
+  "measurement": "sent and received application frame bytes including headers, control and repair; excludes IP/UDP headers",
+  "merge_sample_unit": "decoded mutation or batch message",
+  "mode": "full-state",
+  "network_bootstrap": true,
+  "peers": 2,
+  "per_node": [
+    {
+      "active_window_bytes_per_second": 292099.3333333333,
+      "active_window_received": 1481,
+      "active_window_sent": 874817,
+      "bytes_per_second": 110028.64220537075,
+      "ipv4_udp_overhead": 23268,
+      "mutations": 16,
+      "received": 3546,
+      "received_frames": 52,
+      "sent": 876882,
+      "sent_frames": 779,
+      "serialized_history_bytes": 49093,
+      "tombstones": 0,
+      "visible_bytes": 1039
+    },
+    {
+      "active_window_bytes_per_second": 292099.3333333333,
+      "active_window_received": 874817,
+      "active_window_sent": 1481,
+      "bytes_per_second": 110054.51136098201,
+      "ipv4_udp_overhead": 23352,
+      "mutations": 16,
+      "received": 876882,
+      "received_frames": 779,
+      "sent": 3753,
+      "sent_frames": 55,
+      "serialized_history_bytes": 49093,
+      "tombstones": 0,
+      "visible_bytes": 1039
+    }
+  ],
+  "process_memory": [
+    "VmHWM:\t    8636 kB",
+    "VmRSS:\t    8636 kB"
+  ],
+  "protocol_mutation_merge_ns": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "samples": 0
+  },
+  "seed": 0,
+  "settle_seconds": 5,
+  "source_dirty": false,
+  "toolchain": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "transport": "UDP loopback",
+  "transport_overhead": "28 bytes per IPv4/UDP datagram, reported separately from application bytes",
+  "warmup_seconds": 0,
+  "writers": 1
+}

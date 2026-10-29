@@ -1,0 +1,116 @@
+[
+  {
+    "name": "native-10-1k",
+    "report": "native-10-1k.json",
+    "resources": "native-10-1k.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "native-50-1k",
+    "report": "native-50-1k.json",
+    "resources": "native-50-1k.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "native-100-1k",
+    "report": "native-100-1k.json",
+    "resources": "native-100-1k.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "native-200-1k",
+    "report": "native-200-1k.json",
+    "resources": "native-200-1k.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "native-200-seed-1",
+    "report": "native-200-seed-1.json",
+    "resources": "native-200-seed-1.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "native-200-seed-2",
+    "report": "native-200-seed-2.json",
+    "resources": "native-200-seed-2.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "native-100k",
+    "report": "native-100k.json",
+    "resources": "native-100k.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "native-1m",
+    "report": "native-1m.json",
+    "resources": "native-1m.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "steady-delta",
+    "report": "steady-delta.json",
+    "resources": "steady-delta.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "steady-full-state",
+    "report": "steady-full-state.json",
+    "resources": "steady-full-state.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "session-delta",
+    "report": "session-delta.json",
+    "resources": "session-delta.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "session-full-state",
+    "report": "session-full-state.json",
+    "resources": "session-full-state.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "idle-10",
+    "report": "idle-10.json",
+    "resources": "idle-10.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "deletion-heavy-50",
+    "report": "deletion-heavy-50.json",
+    "resources": "deletion-heavy-50.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "merge-native-100k-0",
+    "report": "merge-native-100k-0.json",
+    "resources": "merge-native-100k-0.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "merge-native-100k-1",
+    "report": "merge-native-100k-1.json",
+    "resources": "merge-native-100k-1.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "merge-native-100k-2",
+    "report": "merge-native-100k-2.json",
+    "resources": "merge-native-100k-2.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "merge-native-deletion-heavy",
+    "report": "merge-native-deletion-heavy.json",
+    "resources": "merge-native-deletion-heavy.resources.json",
+    "returncode": 0
+  },
+  {
+    "name": "recovery",
+    "report": "recovery.json",
+    "resources": "recovery.resources.json",
+    "returncode": 0
+  }
+]

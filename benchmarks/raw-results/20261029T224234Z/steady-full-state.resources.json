@@ -1,0 +1,22 @@
+{
+  "user_seconds": 0.1,
+  "system_seconds": 0.08,
+  "max_rss_kib": 30616,
+  "elapsed_seconds": 14.01,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-bench",
+    "--peers",
+    "2",
+    "--writers",
+    "1",
+    "--seconds",
+    "5",
+    "--settle-seconds",
+    "8",
+    "--full-state",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/raw-results/20261029T224234Z/steady-full-state.json"
+  ],
+  "returncode": 0,
+  "scope": "entire child process, including preparation and report serialization"
+}

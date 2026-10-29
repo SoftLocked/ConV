@@ -1,0 +1,15 @@
+{
+  "user_seconds": 0.15,
+  "system_seconds": 0.03,
+  "max_rss_kib": 91776,
+  "elapsed_seconds": 0.19,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-merge",
+    "--seed",
+    "0",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/raw-results/20261029T224234Z/merge-native-100k-0.json"
+  ],
+  "returncode": 0,
+  "scope": "entire child process, including preparation and report serialization"
+}

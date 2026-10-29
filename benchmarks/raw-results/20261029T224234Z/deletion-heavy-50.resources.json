@@ -1,0 +1,23 @@
+{
+  "user_seconds": 0.51,
+  "system_seconds": 0.9,
+  "max_rss_kib": 54836,
+  "elapsed_seconds": 14.09,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-bench",
+    "--peers",
+    "50",
+    "--writers",
+    "10",
+    "--delete-every",
+    "2",
+    "--seconds",
+    "5",
+    "--settle-seconds",
+    "8",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/raw-results/20261029T224234Z/deletion-heavy-50.json"
+  ],
+  "returncode": 0,
+  "scope": "entire child process, including preparation and report serialization"
+}
