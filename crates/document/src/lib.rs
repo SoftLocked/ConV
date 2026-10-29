@@ -57,6 +57,14 @@ fn validate(records: &BTreeMap<ElementId, Insertion>) -> Result<(), DocumentErro
 }
 
 impl Document {
+    pub fn insertions(&self) -> impl Iterator<Item = &Insertion> {
+        self.insertions.values()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.insertions.is_empty() && self.deletions.is_empty()
+    }
+
     /// Construct a fragment. Missing predecessors remain pending until merged.
     pub fn fragment(
         records: impl IntoIterator<Item = Insertion>,
@@ -155,6 +163,10 @@ impl Writer {
 
     pub fn document(&self) -> &Document {
         &self.document
+    }
+
+    pub fn sequence(&self) -> u64 {
+        self.sequence
     }
 
     pub fn receive(&mut self, fragment: &Document) -> Result<(), EditError> {

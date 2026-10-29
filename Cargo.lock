@@ -9,6 +9,9 @@ version = "0.1.0"
 [[package]]
 name = "conv-protocol"
 version = "0.1.0"
+dependencies = [
+ "conv-document",
+]
 
 [[package]]
 name = "conv-simulator"

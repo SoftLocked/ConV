@@ -3,6 +3,8 @@
 
 use std::collections::BTreeSet;
 
+pub mod replication;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Range {
     pub start: u64,

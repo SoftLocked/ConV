@@ -3,10 +3,11 @@
 A proposed local-first, peer-to-peer collaborative plain-text editor with a
 custom Rust replication engine shared by native peers and browser WebAssembly.
 
-Implementation has started at milestone 1. The repository currently contains a
-sequence CRDT draft specification, a reference model with local editing, an exact mutation receipt summary, and a
-deterministic document-delivery harness.
-There is no browser editor, networking, persistence, or benchmark result yet.
+Implementation is at the early replication milestone. The repository contains
+a draft CRDT specification, a reference document model, in-memory mutation
+history and range repair, and a deterministic delivery harness. There is no
+browser editor, transport encoding, network connection, persistence, or benchmark
+result yet.
 
 ## Environment
 
@@ -37,14 +38,16 @@ Run the deterministic partition demonstration:
 cargo run -p conv-simulator --example partition
 ```
 
-The harness uses in-memory document fragments and explicit full-state repair.
-The summary can identify missing numbered mutations, but it is not yet wired
-to retained mutation history or automatic repair. Encoded messages, periodic
-timers, SWIM, and real sockets are not implemented. Virtual delivery times are scenario inputs, not performance
-results. The reference renderer prioritizes clarity and has quadratic traversal.
+The simulator's original partition example uses explicit full-state repair.
+The protocol crate now retains each local or received mutation and can answer
+requests for exact missing ranges. This repair path is tested in memory; it is
+not yet scheduled automatically or connected to encoded network messages.
+Virtual delivery times are scenario inputs, not performance results. The
+reference renderer prioritizes clarity and has quadratic traversal.
 
-Next: validate insertion dependencies, introduce versioned mutation envelopes and
-serialization, then implement causal summaries and range repair before SWIM.
+Next: version and encode the mutation messages, add periodic repair scheduling,
+and integrate the same protocol peer into the deterministic network simulator.
+Then add snapshot bootstrap and SWIM membership.
 
 Node 24 is already installed. pnpm, the WASM target, and browser dependencies will
 be configured during the browser milestone. Docker is unnecessary for core work;
