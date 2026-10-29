@@ -108,7 +108,7 @@ lines += ['## Browser dissemination comparison', '', 'The retained 30-edit fanou
     'The roughly 15 KB/s target is assessed using active-window traffic, rather than diluting it with quiet settling time. Keep exact measured values and workload phases in any resume/demo statement. Short trials and a single host limit generality. Production WAN, physical-device composition/background tabs, container execution and public deployment remain separate release gates.', '',
     'GNU-time resource sidecars, when present, record whole-process user/system CPU seconds and peak RSS, including preparation and report generation. They are distinct from the protocol measurement window. CPU utilisation was not collected for the initial reports lacking those sidecars.', '']
 (args.output / 'report.md').write_text('\n'.join(lines))
-plt.rcParams.update({'font.size': 10, 'axes.spines.top': False, 'axes.spines.right': False})
+plt.rcParams.update({'font.size': 10, 'axes.spines.top': False, 'axes.spines.right': False, 'svg.hashsalt': 'conv-measurements-v1'})
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), constrained_layout=True)
 axes[0].plot(counts, means, 'o-', color='#315a41', label='Mean per node')
 axes[0].plot(counts, p95s, 's--', color='#a65b3c', label='p95 across nodes')
@@ -120,6 +120,10 @@ axes[1].plot(values, [(i + 1) * 100 / len(values) for i in range(len(values))], 
 axes[1].axvline(200, linestyle=':', color='#888888', label='Stretch target: p99 <200 ms')
 axes[1].set(xlabel='Recovery latency (ms)', ylabel='Completed trials (%)', title=f"{len(values):,} recovery trials; zero failures", ylim=(0, 100), xlim=(0, max(210, max(values) * 1.05)))
 axes[1].legend(fontsize=8); axes[1].grid(alpha=.15)
-for suffix in ['svg','png']: fig.savefig(args.output / ('measurements.' + suffix), dpi=180)
+for suffix in ['svg', 'png']:
+    artifact = args.output / ('measurements.' + suffix)
+    fig.savefig(artifact, dpi=180, metadata={'Date': None} if suffix == 'svg' else None)
+    if suffix == 'svg':
+        artifact.write_text('\n'.join(line.rstrip() for line in artifact.read_text().splitlines()) + '\n')
 plt.close(fig)
 print('Wrote', args.output / 'report.md')
