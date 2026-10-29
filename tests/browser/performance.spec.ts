@@ -3,9 +3,10 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
+import path from 'node:path';
 
 const enabled = !!process.env.CONV_BENCH_BROWSER;
-test('measure isolated WASM merges and foreground editor latency', async ({ browser }) => {
+test('measure isolated WASM merges and foreground editor latency', async ({ browser }, testInfo) => {
   test.skip(!enabled, 'Set CONV_BENCH_BROWSER=1 to run measured experiments');
   test.setTimeout(180_000);
   const context = await browser.newContext(); const page = await context.newPage();
@@ -58,9 +59,9 @@ test('measure isolated WASM merges and foreground editor latency', async ({ brow
   }
   await Promise.all(contexts.map(context => context.close()));
   visibility.sort((a, b) => a - b);
-  const root = new URL('../../benchmarks/raw-results/', import.meta.url); await mkdir(root, { recursive: true });
-  await writeFile(new URL('browser.json', root), JSON.stringify({ commit: execFileSync('git', ['rev-parse', 'HEAD']).toString().trim(),
-    browser: browser.version(), hardware: cpus()[0]?.model, device: 'single WSL/Linux host, headless Chromium, eight independent browser contexts', wasm,
+  const root = path.resolve(testInfo.config.rootDir, '../../benchmarks/raw-results'); await mkdir(root, { recursive: true });
+  await writeFile(path.join(root, 'browser.json'), JSON.stringify({ commit: execFileSync('git', ['rev-parse', 'HEAD']).toString().trim(),
+    source_dirty: !!execFileSync('git', ['status', '--porcelain', '--untracked-files=no']).toString(), browser: browser.version(), hardware: cpus()[0]?.model, device: 'single WSL/Linux host, headless Chromium, eight independent browser contexts', wasm,
     local_render_proxy: { samples: local, p95_ms: local[94], document_bytes: 1_024, method: 'trusted keydown to second animation-frame callback; upper-bound proxy, not a physical screen measurement' },
     remote_visibility: { samples_ms: visibility, p95_ms: visibility[27], peers: 8, writers: 1, network: 'loopback WebRTC direct', method: 'one controller monotonic clock from keyboard command to all seven remote DOMs; includes automation overhead; waits for prior edit before next' },
   }, null, 2));
