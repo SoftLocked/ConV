@@ -31,6 +31,29 @@ impl Replica {
         Ok(bytes)
     }
 
+    pub fn merge_backup(&mut self, room: u128, bytes: &[u8]) -> Result<(), BackupError> {
+        if bytes.len() < 10 || bytes.len() > 64 * 1024 * 1024 || &bytes[..6] != b"CVBK01" {
+            return Err(BackupError::Invalid);
+        }
+        if crc32fast::hash(&bytes[10..]) != u32::from_le_bytes(bytes[6..10].try_into().unwrap()) {
+            return Err(BackupError::Invalid);
+        }
+        let (backup, rest): (Backup, _) =
+            postcard::take_from_bytes(&bytes[10..]).map_err(|_| BackupError::Invalid)?;
+        if backup.version != 1 || !rest.is_empty() {
+            return Err(BackupError::Invalid);
+        }
+        if backup.room != room {
+            return Err(BackupError::WrongRoom);
+        }
+        let mut staged = self.clone();
+        for mutation in backup.mutations {
+            staged.receive(&mutation).map_err(BackupError::Replica)?;
+        }
+        *self = staged;
+        Ok(())
+    }
+
     pub fn restore(writer: u128, room: u128, bytes: &[u8]) -> Result<Self, BackupError> {
         if bytes.len() < 10 || bytes.len() > 64 * 1024 * 1024 || &bytes[..6] != b"CVBK01" {
             return Err(BackupError::Invalid);

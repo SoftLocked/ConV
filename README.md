@@ -3,11 +3,11 @@
 A proposed local-first, peer-to-peer collaborative plain-text editor with a
 custom Rust replication engine shared by native peers and browser WebAssembly.
 
-Implementation is at the early replication milestone. The repository contains
-a draft CRDT specification, a reference document model, in-memory mutation
-history, periodic range repair, and a deterministic delivery harness. There is no
-browser editor or benchmark result yet. A native UDP adapter supports durable
-local history and restart recovery.
+The repository now includes the Rust document and replication core, encoded
+protocol simulations, durable native UDP peers, and a WASM/React/CodeMirror
+browser editor with WebRTC collaboration and local persistence. Hosted
+deployment, TURN verification, scale benchmarks and some recovery hardening are
+still pending. No proposed performance target is an established result.
 
 ## Environment
 
@@ -85,3 +85,38 @@ python3 tests/native/smoke.py
 
 The smoke test uses two real processes on loopback, including durable restart
 and missing-edit recovery. It is not a scalability or WAN performance result.
+
+## Browser development
+
+Install pnpm (the version is pinned in `package.json`), then:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+pnpm install --frozen-lockfile
+./scripts/build-wasm.sh
+cargo build -p conv-signaling
+```
+
+Run signaling and Vite in separate terminals:
+
+```sh
+CONV_ORIGIN=http://127.0.0.1:5173 cargo run -p conv-signaling
+pnpm --dir web dev
+```
+
+Open `http://127.0.0.1:5173` and share its room link with another browser. Every
+browser keeps its own history in IndexedDB. Export plain text or a ConV backup
+before clearing browser storage. Importing plain text opens a new room; restoring
+a ConV backup preserves the old room identity and merges its retained history.
+
+```sh
+pnpm --dir web exec playwright install --with-deps chromium
+pnpm test:browser
+pnpm build
+```
+
+Browser tests currently cover Unicode/reload, two-context collaboration,
+page-close/rejoin repair, and simultaneous writers. Native and simulator checks
+remain independent. TURN relay, background devices and hosted deployment are
+not yet verified. See [browser architecture](docs/browser-architecture.md).

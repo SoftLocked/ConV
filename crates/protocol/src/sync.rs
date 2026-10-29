@@ -62,6 +62,13 @@ impl SyncPeer {
             swim,
         }
     }
+    pub fn merge_backup(
+        &mut self,
+        room: u128,
+        bytes: &[u8],
+    ) -> Result<(), crate::backup::BackupError> {
+        self.replica.merge_backup(room, bytes)
+    }
     pub fn set_neighbors(&mut self, neighbors: Vec<u128>) {
         if self.neighbors != neighbors {
             self.swim.set_probe_order(neighbors.clone());
@@ -117,6 +124,19 @@ impl SyncPeer {
             Some(mutation) => self.broadcast(Message::Mutation(mutation)),
             None => Vec::new(),
         })
+    }
+
+    pub fn edit_utf16(
+        &mut self,
+        start: usize,
+        end: usize,
+        text: &str,
+    ) -> Result<Vec<Effect>, ReplicationError> {
+        let mutations = self.replica.edit_utf16(start, end, text)?;
+        Ok(mutations
+            .into_iter()
+            .flat_map(|m| self.broadcast(Message::Mutation(m)))
+            .collect())
     }
 
     pub fn delete(&mut self, ids: &[ElementId]) -> Result<Vec<Effect>, ReplicationError> {

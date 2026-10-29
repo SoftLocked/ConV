@@ -19,6 +19,7 @@ pub struct Mutation {
 pub enum ReplicationError {
     InvalidSequence,
     InvalidMutationFragment,
+    InvalidTextRange,
     ConflictingMutation { replica: u128, sequence: u64 },
     Document(EditError),
 }
@@ -59,7 +60,7 @@ impl CausalSummary {
 /// One active writer and retained mutation history. A new instance needs a fresh
 /// replica ID supplied by the host. Every accepted mutation remains available
 /// for range repair, including mutations whose document delta is deletion-only.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Replica {
     writer: Writer,
     replica: u128,
@@ -119,6 +120,43 @@ impl Replica {
             .delete(ids)
             .map_err(ReplicationError::Document)?;
         Ok(Some(self.record_local(fragment)))
+    }
+
+    /// Apply one editor replacement. Offsets are UTF-16 code units, matching JS.
+    /// Splitting a surrogate pair is rejected before the document changes.
+    pub fn edit_utf16(
+        &mut self,
+        start: usize,
+        end: usize,
+        text: &str,
+    ) -> Result<Vec<Mutation>, ReplicationError> {
+        let elements = self.document().visible_elements();
+        let mut boundaries = Vec::with_capacity(elements.len() + 1);
+        boundaries.push(0);
+        for (_, ch) in &elements {
+            boundaries.push(boundaries.last().unwrap() + ch.len_utf16());
+        }
+        let first = boundaries
+            .binary_search(&start)
+            .map_err(|_| ReplicationError::InvalidTextRange)?;
+        let last = boundaries
+            .binary_search(&end)
+            .map_err(|_| ReplicationError::InvalidTextRange)?;
+        if first > last {
+            return Err(ReplicationError::InvalidTextRange);
+        }
+        let anchor = first.checked_sub(1).map(|index| elements[index].0);
+        let deleted: Vec<_> = elements[first..last].iter().map(|&(id, _)| id).collect();
+        let mut candidate = self.clone();
+        let mut mutations = Vec::new();
+        if let Some(mutation) = candidate.delete(&deleted)? {
+            mutations.push(mutation);
+        }
+        if let Some(mutation) = candidate.insert(anchor, text)? {
+            mutations.push(mutation);
+        }
+        *self = candidate;
+        Ok(mutations)
     }
 
     fn record_local(&mut self, fragment: Document) -> Mutation {

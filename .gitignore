@@ -8,3 +8,8 @@
 *.conv
 *.conv.tmp
 *.conv.lock
+/web/src/generated/
+/playwright-report/
+/test-results/
+/web/playwright-report/
+/web/test-results/

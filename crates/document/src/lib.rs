@@ -28,6 +28,12 @@ pub struct Document {
     deletions: BTreeSet<ElementId>,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct TextAnchor {
+    pub left: Option<ElementId>,
+    pub right: Option<ElementId>,
+}
+
 #[derive(Serialize, Deserialize)]
 struct DocumentState {
     records: Vec<Insertion>,
@@ -124,7 +130,7 @@ impl Document {
     }
 
     /// Stable element IDs in rendered order, used by editor position adapters.
-    pub fn visible_elements(&self) -> Vec<(ElementId, char)> {
+    pub fn ordered_elements(&self) -> Vec<(ElementId, char)> {
         let mut children: BTreeMap<Option<ElementId>, Vec<&Insertion>> = BTreeMap::new();
         for record in self.insertions.values() {
             children.entry(record.anchor).or_default().push(record);
@@ -135,9 +141,7 @@ impl Document {
         let mut output = Vec::new();
         let mut pending = vec![None];
         while let Some(anchor) = pending.pop() {
-            if let Some(id) = anchor
-                && !self.deletions.contains(&id)
-            {
+            if let Some(id) = anchor {
                 output.push((id, self.insertions[&id].value));
             }
             if let Some(siblings) = children.get(&anchor) {
@@ -145,6 +149,47 @@ impl Document {
             }
         }
         output
+    }
+
+    pub fn visible_elements(&self) -> Vec<(ElementId, char)> {
+        self.ordered_elements()
+            .into_iter()
+            .filter(|(id, _)| !self.deletions.contains(id))
+            .collect()
+    }
+
+    pub fn anchor_utf16(&self, position: usize) -> Option<TextAnchor> {
+        let elements = self.visible_elements();
+        let mut offset = 0;
+        for index in 0..=elements.len() {
+            if offset == position {
+                return Some(TextAnchor {
+                    left: index.checked_sub(1).map(|i| elements[i].0),
+                    right: elements.get(index).map(|&(id, _)| id),
+                });
+            }
+            if let Some((_, ch)) = elements.get(index) {
+                offset += ch.len_utf16();
+            }
+        }
+        None
+    }
+
+    pub fn resolve_anchor(&self, anchor: TextAnchor) -> usize {
+        let mut offset = 0;
+        let mut left = None;
+        for (id, ch) in self.ordered_elements() {
+            if Some(id) == anchor.right {
+                return offset;
+            }
+            if !self.deletions.contains(&id) {
+                offset += ch.len_utf16();
+            }
+            if Some(id) == anchor.left {
+                left = Some(offset);
+            }
+        }
+        left.unwrap_or(0)
     }
 
     pub fn text(&self) -> String {
@@ -157,7 +202,7 @@ impl Document {
 
 /// One active writer session. The host must allocate a fresh replica ID; restoring
 /// an old writer counter or sharing an ID between tabs is forbidden.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Writer {
     replica: u128,
     sequence: u64,
