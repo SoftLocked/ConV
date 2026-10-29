@@ -117,6 +117,7 @@ async fn main() -> Result<()> {
     let mut frame = [0_u8; 1_201];
     let start = Instant::now();
     let mut timer = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut membership_timer = tokio::time::interval(std::time::Duration::from_millis(100));
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut input_open = true;
     println!(
@@ -127,6 +128,10 @@ async fn main() -> Result<()> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
+            _ = membership_timer.tick() => {
+                let effects = peer.on_membership_timer(start.elapsed().as_millis() as u64);
+                dispatch(&socket, &args, writer, &mut sequence, &addresses, effects).await?;
+            }
             _ = timer.tick() => {
                 for &seed in &args.seed { send(&socket, args.room, writer, &mut sequence, seed, &Message::Hello).await?; }
                 dispatch(&socket, &args, writer, &mut sequence, &addresses, peer.on_sync_timer()).await?;
@@ -140,7 +145,7 @@ async fn main() -> Result<()> {
                     addresses.insert(sender, address);
                     peer.set_neighbors(addresses.keys().copied().collect());
                     let before = peer.replica().history_len();
-                    match peer.receive(sender, message) {
+                    match peer.receive_at(sender, message, start.elapsed().as_millis() as u64) {
                         Ok(effects) => {
                             if peer.replica().history_len() != before {
                                 save(&peer, args.room, &args.state)?;

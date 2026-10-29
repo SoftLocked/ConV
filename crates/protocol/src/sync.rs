@@ -1,4 +1,5 @@
 //! Host-driven periodic anti-entropy. The host provides timers and transport.
+use crate::membership::{Swim, SwimMessage};
 use crate::replication::{CausalSummary, Mutation, Replica, ReplicationError, SyncRequest};
 use conv_document::ElementId;
 use serde::{Deserialize, Serialize};
@@ -6,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Hello,
+    Swim(SwimMessage),
     Summary(CausalSummary),
     Request(Vec<SyncRequest>),
     Mutation(Mutation),
@@ -39,28 +41,45 @@ pub struct SyncPeer {
     replica: Replica,
     neighbors: Vec<u128>,
     config: SyncConfig,
+    swim: Swim,
 }
 
 impl SyncPeer {
     pub fn new(id: u128, neighbors: Vec<u128>, config: SyncConfig) -> Self {
         assert!(config.interval_ms > 0 && config.max_ranges > 0 && config.max_reply_items > 0);
-        Self {
-            replica: Replica::new(id),
-            neighbors,
-            config,
-        }
+        Self::from_replica(Replica::new(id), neighbors, config)
     }
 
     pub fn from_replica(replica: Replica, neighbors: Vec<u128>, config: SyncConfig) -> Self {
         assert!(config.interval_ms > 0 && config.max_ranges > 0 && config.max_reply_items > 0);
+        let id = replica.writer_id();
+        let mut swim = Swim::new(id);
+        swim.set_probe_order(neighbors.clone());
         Self {
             replica,
             neighbors,
             config,
+            swim,
         }
     }
     pub fn set_neighbors(&mut self, neighbors: Vec<u128>) {
+        if self.neighbors != neighbors {
+            self.swim.set_probe_order(neighbors.clone());
+        }
         self.neighbors = neighbors;
+    }
+    pub fn membership(&self) -> &Swim {
+        &self.swim
+    }
+    pub fn on_membership_timer(&mut self, now: u64) -> Vec<Effect> {
+        self.swim
+            .tick(now)
+            .into_iter()
+            .map(|send| Effect::Send {
+                to: send.to,
+                message: Message::Swim(send.message),
+            })
+            .collect()
     }
 
     pub fn replica(&self) -> &Replica {
@@ -80,6 +99,9 @@ impl SyncPeer {
     /// Call once to start, then once for each requested sync timer firing.
     pub fn on_sync_timer(&self) -> Vec<Effect> {
         let mut effects = self.broadcast(Message::Summary(self.replica.summary().clone()));
+        for member in self.swim.members().values() {
+            effects.extend(self.broadcast(Message::Swim(SwimMessage::Update(*member))));
+        }
         effects.push(Effect::ScheduleSync {
             after_ms: self.config.interval_ms,
         });
@@ -109,7 +131,24 @@ impl SyncPeer {
         from: u128,
         message: Message,
     ) -> Result<Vec<Effect>, ReplicationError> {
+        self.receive_at(from, message, 0)
+    }
+    pub fn receive_at(
+        &mut self,
+        from: u128,
+        message: Message,
+        now: u64,
+    ) -> Result<Vec<Effect>, ReplicationError> {
         match message {
+            Message::Swim(message) => Ok(self
+                .swim
+                .receive(from, message, now)
+                .into_iter()
+                .map(|send| Effect::Send {
+                    to: send.to,
+                    message: Message::Swim(send.message),
+                })
+                .collect()),
             Message::Hello => Ok(vec![Effect::Send {
                 to: from,
                 message: Message::Summary(self.replica.summary().clone()),

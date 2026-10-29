@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug)]
 enum Event {
     Timer(usize),
+    MembershipTimer(usize),
     Deliver {
         from: usize,
         to: usize,
@@ -80,6 +81,7 @@ impl SyncNetwork {
         };
         for index in 0..count {
             network.enqueue(0, Event::Timer(index));
+            network.enqueue(0, Event::MembershipTimer(index));
         }
         network
     }
@@ -177,6 +179,11 @@ impl SyncNetwork {
             let ((at, _), event) = self.events.pop_first().unwrap();
             self.now = at;
             match event {
+                Event::MembershipTimer(peer) => {
+                    let effects = self.peers[peer].on_membership_timer(self.now);
+                    self.apply(peer, effects);
+                    self.enqueue(100, Event::MembershipTimer(peer));
+                }
                 Event::Timer(peer) => {
                     let effects = self.peers[peer].on_sync_timer();
                     self.apply(peer, effects);
@@ -192,7 +199,7 @@ impl SyncNetwork {
                         if matches!(&message, Message::Request(_)) {
                             self.requests_delivered += 1;
                         }
-                        let effects = self.peers[to].receive(sender, message)?;
+                        let effects = self.peers[to].receive_at(sender, message, self.now)?;
                         self.apply(to, effects);
                     }
                 }

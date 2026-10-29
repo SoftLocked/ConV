@@ -131,3 +131,4 @@ pub mod sync;
 pub mod wire;
 
 pub mod backup;
+pub mod membership;

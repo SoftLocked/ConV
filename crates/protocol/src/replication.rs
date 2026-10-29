@@ -77,6 +77,10 @@ impl Replica {
         }
     }
 
+    pub fn writer_id(&self) -> u128 {
+        self.replica
+    }
+
     pub fn document(&self) -> &Document {
         self.writer.document()
     }
