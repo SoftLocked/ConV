@@ -30,6 +30,7 @@ function App() {
   const [offline, setOffline] = useState(false);
   const [notice, setNotice] = useState(''), [diagnostics, setDiagnostics] = useState(false);
   const [length, setLength] = useState(0);
+  const overlay = useRef(false);
   const container = useRef<HTMLDivElement>(null), view = useRef<EditorView | null>(null), engine = useRef<Engine | null>(null);
   const worker = useRef<Worker | null>(null), mesh = useRef<Mesh | null>(null), serial = useRef(0);
   const peers = useRef<Person[]>([]), cursorState = useRef(new Map<string, { bytes: number[]; seen: number; active: number }>());
@@ -54,7 +55,10 @@ function App() {
     };
     network.onPeople = list => {
       peers.current = list; setPeople(list);
-      host.postMessage({ type: 'peers', ids: list.filter(p => p.connected).map(p => p.id), members: list.map(p => p.id), overlay: list.length > 7 });
+      // Roster hints can shrink during a signaling outage while the healthy
+      // overlay still carries traffic. Keep relaying once this session needs it.
+      overlay.current ||= list.length > 7;
+      host.postMessage({ type: 'peers', ids: list.filter(p => p.connected).map(p => p.id), members: list.map(p => p.id), overlay: overlay.current });
     };
     network.onStatus = setConnection;
     network.onFrame = frame => host.postMessage({ type: 'receive', frame });

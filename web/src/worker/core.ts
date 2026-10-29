@@ -38,7 +38,7 @@ function scheduleSave() {
       return;
     } finally { saving = false; }
     if (dirty) scheduleSave();
-  }, 50);
+  }, 100);
 }
 // Serial core operations, with at most one queued timer and one durable write.
 // Incoming changes do not wait for every intermediate full-history snapshot.
@@ -52,6 +52,7 @@ function enqueue(data: any) {
       name = saved.at(-1)?.name ?? name;
       nameChangedAt = saved.at(-1)?.nameChangedAt ?? 0;
       engine = new Engine(room, writer, saved[0]?.backup);
+      engine.protocol_lane();
       for (const entry of saved.slice(1)) engine.merge_backup(entry.backup);
       history = engine.history_len();
       worker.postMessage({ type: 'ready', backup: engine.backup(), name, nameChangedAt });

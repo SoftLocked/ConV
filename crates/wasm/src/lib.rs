@@ -37,6 +37,7 @@ pub struct Engine {
     counter: u64,
     outbox: Outbox,
     batching: bool,
+    include_text: bool,
 }
 
 #[wasm_bindgen]
@@ -59,6 +60,7 @@ impl Engine {
             counter: 0,
             outbox: Outbox::default(),
             batching: true,
+            include_text: true,
         })
     }
     pub fn merge_backup(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
@@ -73,6 +75,12 @@ impl Engine {
     pub fn editor_lane(&mut self) {
         self.counter = 1_u64 << 63;
         self.batching = false;
+        self.include_text = true;
+    }
+    /// The protocol worker never paints text. Avoid rebuilding the document on
+    /// every control packet and timer; the editor lane renders accepted changes.
+    pub fn protocol_lane(&mut self) {
+        self.include_text = false;
     }
     pub fn history_len(&self) -> usize {
         self.peer.replica().history_len()
@@ -196,7 +204,11 @@ impl Engine {
             }
         }
         serde_wasm_bindgen::to_value(&Update {
-            text: self.text(),
+            text: if self.include_text {
+                self.text()
+            } else {
+                String::new()
+            },
             history: self.peer.replica().history_len(),
             outbound,
         })
