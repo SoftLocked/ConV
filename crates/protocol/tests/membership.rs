@@ -1,6 +1,29 @@
 use conv_protocol::membership::{Member, Status, Swim, SwimMessage};
 
 #[test]
+fn routed_browser_probes_allow_multi_hop_round_trips() {
+    let mut swim = Swim::new(1);
+    swim.use_routed_timing(true);
+    swim.set_probe_order(vec![2, 3]);
+    assert!(matches!(
+        swim.tick(0)[0].message,
+        SwimMessage::Ping { probe: 1, .. }
+    ));
+    assert!(swim.tick(750).is_empty());
+    swim.receive(
+        2,
+        SwimMessage::Ack {
+            origin: 1,
+            probe: 1,
+            target: 2,
+        },
+        900,
+    );
+    assert!(swim.tick(1_000).is_empty());
+    assert_eq!(swim.members()[&2].status, Status::Alive);
+}
+
+#[test]
 fn failed_direct_and_indirect_probes_suspect_then_expire() {
     let mut swim = Swim::new(1);
     swim.set_probe_order(vec![2, 3]);

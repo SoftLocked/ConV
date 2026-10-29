@@ -39,6 +39,8 @@ pub struct Engine {
     outbox: Outbox,
     batching: bool,
     include_text: bool,
+    rendered_history: usize,
+    rendered_text: String,
 }
 
 #[wasm_bindgen]
@@ -63,6 +65,8 @@ impl Engine {
             outbox: Outbox::default(),
             batching: true,
             include_text: true,
+            rendered_history: usize::MAX,
+            rendered_text: String::new(),
         })
     }
     pub fn merge_backup(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
@@ -203,6 +207,10 @@ impl Engine {
         self.encode_output(effects)
     }
     fn encode_output(&mut self, effects: Vec<Effect>) -> Result<JsValue, JsValue> {
+        if self.include_text && self.rendered_history != self.peer.replica().history_len() {
+            self.rendered_text = self.text();
+            self.rendered_history = self.peer.replica().history_len();
+        }
         let mut outbound = Vec::new();
         for effect in effects {
             if let Effect::Send { to, message } = effect {
@@ -221,7 +229,7 @@ impl Engine {
         }
         serde_wasm_bindgen::to_value(&Update {
             text: if self.include_text {
-                self.text()
+                self.rendered_text.clone()
             } else {
                 String::new()
             },

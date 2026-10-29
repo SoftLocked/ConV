@@ -57,6 +57,7 @@ pub struct Swim {
     pending: Option<Probe>,
     sequence: u64,
     next_probe: u64,
+    timing_scale: u64,
 }
 impl Swim {
     pub fn new(id: u128) -> Self {
@@ -77,10 +78,16 @@ impl Swim {
             pending: None,
             sequence: 0,
             next_probe: 0,
+            timing_scale: 1,
         }
     }
     pub fn members(&self) -> &BTreeMap<u128, Member> {
         &self.members
+    }
+    /// Routed browser probes need time for multiple peer hops and
+    /// browser scheduling. Native/direct rooms retain the original defaults.
+    pub fn use_routed_timing(&mut self, enabled: bool) {
+        self.timing_scale = if enabled { 4 } else { 1 };
     }
     pub fn needs_probe_order(&self) -> bool {
         !self.order.is_empty() && self.cursor >= self.order.len()
@@ -139,8 +146,13 @@ impl Swim {
         }
         self.members.insert(member.id, member);
         if member.status == Status::Suspect {
-            self.suspects
-                .insert(member.id, (member.incarnation, now.saturating_add(5_000)));
+            self.suspects.insert(
+                member.id,
+                (
+                    member.incarnation,
+                    now.saturating_add(5_000 * self.timing_scale),
+                ),
+            );
         } else {
             self.suspects.remove(&member.id);
         }
@@ -197,7 +209,7 @@ impl Swim {
                     });
                 }
                 probe.indirect = true;
-                probe.deadline = now.saturating_add(250);
+                probe.deadline = now.saturating_add(250 * self.timing_scale);
                 self.pending = Some(probe);
             } else if let Some(member) = self.members.get(&probe.target).copied()
                 && member.status == Status::Alive
@@ -227,11 +239,11 @@ impl Swim {
                         .sequence
                         .checked_add(1)
                         .expect("probe counter exhausted");
-                    self.next_probe = now.saturating_add(1_000);
+                    self.next_probe = now.saturating_add(1_000 * self.timing_scale);
                     self.pending = Some(Probe {
                         target,
                         number: self.sequence,
-                        deadline: now.saturating_add(250),
+                        deadline: now.saturating_add(250 * self.timing_scale),
                         indirect: false,
                     });
                     output.push(Send {
@@ -265,8 +277,10 @@ impl Swim {
                 if self.relays.len() >= 256 {
                     return Vec::new();
                 }
-                self.relays
-                    .insert((origin, probe, target), (from, now.saturating_add(1_000)));
+                self.relays.insert(
+                    (origin, probe, target),
+                    (from, now.saturating_add(1_000 * self.timing_scale)),
+                );
                 vec![Send {
                     to: target,
                     message: SwimMessage::Ping { origin, probe },

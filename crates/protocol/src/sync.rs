@@ -98,11 +98,13 @@ impl SyncPeer {
     pub fn use_full_mesh_room(&mut self) {
         self.full_mesh_room = true;
         self.overlay_room = false;
+        self.swim.use_routed_timing(false);
     }
     /// Flood each newly learned mutation over bounded reliable overlay links.
     pub fn use_overlay_room(&mut self) {
         self.full_mesh_room = true;
         self.overlay_room = true;
+        self.swim.use_routed_timing(true);
     }
     pub fn merge_backup(
         &mut self,

@@ -20,7 +20,7 @@ export class Mesh {
   private sequence = 0;
   private seen = new Map<string, number>();
   onPeople: (people: Person[]) => void = () => {};
-  onFrame: (frame: Uint8Array) => void = () => {};
+  onFrame: (frame: Uint8Array, control: boolean) => void = () => {};
   onCursor: (id: string, cursor: number[]) => void = () => {};
   onStatus: (status: string) => void = () => {};
   constructor(private room: string, private id: string, private name: string) {}
@@ -156,7 +156,7 @@ export class Mesh {
         entry.control = channel; channel.bufferedAmountLowThreshold = 16 * 1024;
         channel.onopen = () => this.flush(entry); channel.onbufferedamountlow = () => this.flush(entry);
         channel.onmessage = ({ data }) => {
-          if (data instanceof ArrayBuffer && data.byteLength <= 1_200) this.onFrame(new Uint8Array(data));
+          if (data instanceof ArrayBuffer && data.byteLength <= 1_200) this.onFrame(new Uint8Array(data), true);
           else if (typeof data === 'string' && data.length <= 8_192) this.receiveRoute(id, data);
         };
       } else if (channel.label === 'presence') {
@@ -168,7 +168,7 @@ export class Mesh {
         channel.onbufferedamountlow = () => this.flush(entry);
         channel.onopen = () => { if (this.peers.get(id) === entry) { this.flush(entry); this.scheduleTopology(30); } };
         channel.onclose = () => { if (this.peers.get(id) === entry) { this.removeLink(id); if (!this.signaled.has(id)) this.people.delete(id); this.scheduleTopology(1_000); } };
-        channel.onmessage = ({ data }) => { if (data instanceof ArrayBuffer && data.byteLength <= 1_200) this.onFrame(new Uint8Array(data)); };
+        channel.onmessage = ({ data }) => { if (data instanceof ArrayBuffer && data.byteLength <= 1_200) this.onFrame(new Uint8Array(data), false); };
       }
     };
     pc.ondatachannel = ({ channel }) => attach(channel);
@@ -220,7 +220,7 @@ export class Mesh {
       if (route.kind !== 'route' || !this.people.has(route.origin) || !Number.isSafeInteger(route.sequence) || route.sequence < 1
         || !Number.isInteger(route.hops) || route.hops < 0 || route.hops > 16 || !Array.isArray(route.frame) || route.frame.length > 1_200
         || !route.frame.every(n => Number.isInteger(n) && n >= 0 && n <= 255) || !this.remember('route', route.origin, route.sequence)) return;
-      if (route.to === this.id) this.onFrame(new Uint8Array(route.frame));
+      if (route.to === this.id) this.onFrame(new Uint8Array(route.frame), true);
       else this.forwardRoute({ ...route, hops: route.hops - 1 }, from);
     } catch { /* Bounded, best-effort control routing; protocol timers retry. */ }
   }

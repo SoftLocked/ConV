@@ -178,7 +178,7 @@ try {
     await verify(`${participantCount} sessions loaded the same draft`, draft);
     if (participantCount > 5) {
       await phase(`${participantCount - 5} background participants add real review notes to the same document.`);
-      await Promise.all(editors.slice(5).map(async (editor, i) => { await editor.press('Control+End'); await pages[i + 5].keyboard.insertText(`\n${names[i + 5]}: needs review`); }));
+      await Promise.all(editors.slice(5).map(async (editor, i) => { await delay(i * 120); await editor.press('Control+End'); await pages[i + 5].keyboard.insertText(`\n${names[i + 5]}: needs review`); }));
       await verify('Every background session contributed a review note', draft, 'needs review');
     }
     const rounds = [
@@ -195,7 +195,7 @@ try {
       await delay(650);
       await Promise.all([
         ...round.actions.map((action, i) => action[1] ? editors[i].pressSequentially(action[1], { delay: 100 }) : editors[i].press('Backspace')),
-        ...(r === 0 ? names.slice(5).map((name, i) => pages[i + 5].keyboard.insertText(`${name}: reviewed`)) : []),
+        ...(r === 0 ? names.slice(5).map(async (name, i) => { await delay(i * 120); await pages[i + 5].keyboard.insertText(`${name}: reviewed`); }) : []),
       ]);
       for (const [before, after] of round.actions) draft = draft.replace(before, after);
       await verify(round.label, draft, 'reviewed');
@@ -241,7 +241,7 @@ try {
   expect(new Set(backupHashes).size).toBe(1);
   stopCapture = true; await capture; if (captureError) throw captureError;
   await board.screenshot({ path: fileURLToPath(new URL(artifact + '.png', output)) });
-  await writeFile(new URL(artifact + '.json', output), JSON.stringify({ commit: source, source_dirty: dirty, browser: browser.version(), sessions: participantCount, visible_sessions: 5,
+  await writeFile(new URL(artifact + '.json', output), JSON.stringify({ commit: source, source_dirty: dirty, browser: browser.version(), sessions: participantCount, visible_sessions: 5, background_edit_spacing_ms: 120,
     isolation: 'independent Chromium contexts; an additional context records five live viewport screenshots',
     transport: 'loopback WebRTC, full mesh up to eight; bounded overlay above eight', direct_degrees_before_edits: degrees,
     canonical_backup_sha256: backupHashes[0], identical_full_backups: true,

@@ -65,10 +65,10 @@ function enqueue(data: any) {
       let update: Update;
       try { update = dispatch(engine.receive(new Uint8Array(data.frame), now()) as Update); }
       catch { rejectedFrames++; return; } // Network admission is retried by anti-entropy, not a local-save failure.
+      // Stream reliable frames to the editor's independent reassembler. Avoid
+      // serializing/cloning all history for every chunked live mutation.
+      if (!data.control) worker.postMessage({ type: 'remote', frame: data.frame });
       if (update.history !== history) {
-        const frame = new Uint8Array(data.frame);
-        if (new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(44, true) === 1) worker.postMessage({ type: 'remote', frame: data.frame });
-        else worker.postMessage({ type: 'snapshot', backup: engine.backup() });
         history = update.history; scheduleSave();
       }
     } else if (data.type === 'peers') {

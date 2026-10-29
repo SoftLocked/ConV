@@ -61,7 +61,7 @@ function App() {
       host.postMessage({ type: 'peers', ids: list.filter(p => p.connected).map(p => p.id), members: list.map(p => p.id), overlay: overlay.current });
     };
     network.onStatus = setConnection;
-    network.onFrame = frame => host.postMessage({ type: 'receive', frame });
+    network.onFrame = (frame, control) => host.postMessage({ type: 'receive', frame, control });
     network.onCursor = (id, bytes) => {
       const previous = cursorState.current.get(id);
       const moved = !previous || previous.bytes.join() !== bytes.join();
@@ -126,7 +126,10 @@ function App() {
           paint(text, anchor && head ? { anchor: engine.current.resolve_anchor(anchor), head: engine.current.resolve_anchor(head) } : undefined);
         }
         else if (data.type === 'error') { setSaveError(data.message); setSaved('Local save failed'); }
-      } catch (failure) { setError(String(failure)); }
+      } catch (failure) {
+        if (data.type === 'remote') host.postMessage({ type: 'snapshot' });
+        else setError(String(failure));
+      }
     };
     host.postMessage({ type: 'init', room, writer });
     const heartbeat = setInterval(() => {
