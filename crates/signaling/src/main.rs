@@ -23,6 +23,7 @@ struct App {
 #[derive(Clone)]
 struct Client {
     name: String,
+    order: u32,
     send: mpsc::Sender<String>,
 }
 #[derive(Deserialize)]
@@ -35,6 +36,7 @@ struct Join {
 struct Peer {
     id: String,
     name: String,
+    order: u32,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,7 +101,7 @@ async fn join(
 }
 
 async fn session(socket: WebSocket, app: App, join: Join) {
-    let (send, mut receive) = mpsc::channel::<String>(64);
+    let (send, mut receive) = mpsc::channel::<String>(256);
     let (mut outgoing, mut incoming) = socket.split();
     {
         let mut rooms = app.rooms.lock().await;
@@ -107,19 +109,35 @@ async fn session(socket: WebSocket, app: App, join: Join) {
             return;
         }
         let room = rooms.entry(join.room.clone()).or_default();
-        if room.len() >= 8 || room.contains_key(&join.session) {
+        if room.len() >= 50 || room.contains_key(&join.session) {
+            drop(rooms);
+            let _ = outgoing
+                .send(Message::Text(
+                    serde_json::json!({"type":"capacity", "limit":50})
+                        .to_string()
+                        .into(),
+                ))
+                .await;
             return;
         }
+        let order = room
+            .values()
+            .map(|client| client.order)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
         let peers: Vec<_> = room
             .iter()
             .map(|(id, client)| Peer {
                 id: id.clone(),
                 name: client.name.clone(),
+                order: client.order,
             })
             .collect();
-        let welcome = serde_json::json!({"type":"welcome", "peers":peers}).to_string();
+        let welcome =
+            serde_json::json!({"type":"welcome", "peers":peers, "order":order}).to_string();
         let _ = send.try_send(welcome);
-        let joined = serde_json::json!({"type":"join", "peer":Peer { id: join.session.clone(), name: join.name.clone() }}).to_string();
+        let joined = serde_json::json!({"type":"join", "peer":Peer { id: join.session.clone(), name: join.name.clone(), order }}).to_string();
         for peer in room.values() {
             let _ = peer.send.try_send(joined.clone());
         }
@@ -127,6 +145,7 @@ async fn session(socket: WebSocket, app: App, join: Join) {
             join.session.clone(),
             Client {
                 name: join.name.clone(),
+                order,
                 send,
             },
         );
@@ -150,7 +169,7 @@ async fn session(socket: WebSocket, app: App, join: Join) {
                     last_seen = Instant::now();
                     if window.elapsed().as_secs() >= 1 { count = 0; window = Instant::now(); }
                     count += 1;
-                    if count > 60 { break; }
+                    if count > 240 { break; }
                     let Ok(signal) = serde_json::from_str::<Signal>(&text) else { break; };
                     if !valid_id(&signal.to) || signal.description.is_some() == signal.candidate.is_some() { break; }
                     if let Some(description) = &signal.description

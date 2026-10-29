@@ -5,6 +5,7 @@ const worker = self as unknown as DedicatedWorkerGlobalScope;
 let engine: Engine, room: string, writer: string, name = 'Untitled document', nameChangedAt = 0;
 let history = 0, ticks = 0;
 let knownPeers: string[] = [];
+let knownMembers: string[] = [];
 function shuffled(ids: string[]) {
   const output = ids.slice();
   for (let index = output.length - 1; index > 0; index--) {
@@ -44,14 +45,26 @@ worker.onmessage = ({ data }) => {
       if (outgoing.length) worker.postMessage({ type: 'outbound', frames: outgoing });
     } else if (data.type === 'receive') {
       const update = dispatch(engine.receive(new Uint8Array(data.frame), now()) as Update);
-      worker.postMessage({ type: 'remote', frame: data.frame });
-      if (update.history !== history) { history = update.history; await persist(); }
+      if (update.history !== history) {
+        // Forward complete document changes only. Control/duplicate frames need
+        // no editor merge; a completed chunked transfer becomes an atomic backup.
+        const frame = new Uint8Array(data.frame);
+        if (new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(44, true) === 1) worker.postMessage({ type: 'remote', frame: data.frame });
+        else worker.postMessage({ type: 'snapshot', backup: engine.backup() });
+        history = update.history; await persist();
+      }
     } else if (data.type === 'peers') {
-      knownPeers = data.ids;
-      engine.connect(shuffled(knownPeers));
-      for (const id of data.ids) dispatch(engine.hello(id) as Update);
+      const ids: string[] = [...data.ids].sort(), members: string[] = [...data.members].sort();
+      const changed = ids.join() !== knownPeers.join(), membershipChanged = members.join() !== knownMembers.join();
+      engine.overlay(data.overlay);
+      if (changed) {
+        const added = ids.filter(id => !knownPeers.includes(id)); knownPeers = ids;
+        engine.connect(shuffled(knownPeers));
+        for (const id of added) dispatch(engine.hello(id) as Update);
+      }
+      if (changed || membershipChanged) { knownMembers = members; engine.reshuffle_probes(shuffled(knownMembers)); }
     } else if (data.type === 'tick') {
-      if (engine.needs_probe_order()) engine.reshuffle_probes(shuffled(knownPeers));
+      if (engine.needs_probe_order()) engine.reshuffle_probes(shuffled(knownMembers));
       dispatch(engine.tick(now(), ++ticks % 50 === 0) as Update);
     } else if (data.type === 'snapshot') { worker.postMessage({ type: 'snapshot', backup: engine.backup() });
     } else if (data.type === 'name') { name = String(data.name).slice(0, 120); nameChangedAt = Date.now(); await persist(); worker.postMessage({ type: 'saved', serial: data.serial }); }

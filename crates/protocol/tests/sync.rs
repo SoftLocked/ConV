@@ -118,3 +118,25 @@ fn full_mesh_browser_mode_broadcasts_only_from_the_source() {
     assert!(receiver.receive(1, message).unwrap().is_empty());
     assert_eq!(receiver.replica().document().text(), "x");
 }
+
+#[test]
+fn reliable_overlay_relays_new_mutations_and_suppresses_loops() {
+    let mut source = SyncPeer::new(1, vec![2], SyncConfig::default());
+    let mut relay = SyncPeer::new(2, vec![1, 3], SyncConfig::default());
+    let mut target = SyncPeer::new(3, vec![2], SyncConfig::default());
+    for peer in [&mut source, &mut relay, &mut target] {
+        peer.use_overlay_room();
+    }
+    let Effect::Send { message, .. } = source.insert(None, "shared").unwrap().remove(0) else {
+        panic!("expected send");
+    };
+    let sends = relay.receive(1, message.clone()).unwrap();
+    assert!(relay.receive(1, message).unwrap().is_empty());
+    assert_eq!(sends.len(), 1);
+    let Effect::Send { to: 3, message } = sends[0].clone() else {
+        panic!("expected relay");
+    };
+    target.receive(2, message).unwrap();
+    assert_eq!(source.replica().document(), target.replica().document());
+    assert_eq!(source.replica().summary(), target.replica().summary());
+}

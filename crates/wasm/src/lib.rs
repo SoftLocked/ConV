@@ -111,7 +111,7 @@ impl Engine {
     pub fn connect(&mut self, ids: JsValue) -> Result<(), JsValue> {
         let ids: Vec<String> = serde_wasm_bindgen::from_value(ids).map_err(error)?;
         if ids.len() > 8 {
-            return Err(error("browser room exceeds eight peers"));
+            return Err(error("browser overlay exceeds eight direct links"));
         }
         self.peer.set_neighbors(
             ids.iter()
@@ -119,6 +119,13 @@ impl Engine {
                 .collect::<Result<_, _>>()?,
         );
         Ok(())
+    }
+    pub fn overlay(&mut self, enabled: bool) {
+        if enabled {
+            self.peer.use_overlay_room();
+        } else {
+            self.peer.use_full_mesh_room();
+        }
     }
     pub fn edit(&mut self, start: usize, end: usize, text: &str) -> Result<JsValue, JsValue> {
         let mut candidate = self.peer.clone();
