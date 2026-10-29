@@ -1,0 +1,32 @@
+name: check
+on: [push, pull_request]
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo test --locked --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo build -p conv-native-peer -p conv-signaling
+      - run: python3 tests/native/smoke.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+      - run: ./scripts/build-wasm.sh
+      - run: pnpm --dir web exec playwright install --with-deps chromium
+      - run: pnpm build
+      - run: pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-traces
+          path: web/test-results

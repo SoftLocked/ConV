@@ -1,0 +1,11 @@
+.git
+node_modules
+web/node_modules
+web/dist
+web/src/generated
+target
+.env
+*.conv
+*.conv.lock
+*.conv.tmp
+web/test-results

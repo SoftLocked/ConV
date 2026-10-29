@@ -1,0 +1,33 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+    environment:
+      CONV_HOST: ${CONV_HOST:-localhost}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: ["caddy-data:/data", "caddy-config:/config"]
+    depends_on: [signaling]
+    restart: unless-stopped
+  signaling:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.signaling
+    environment:
+      CONV_ORIGIN: https://${CONV_HOST:-localhost}
+      CONV_TURN_URL: turn:${CONV_TURN_HOST:-localhost}:3478
+      CONV_TURN_SECRET: ${CONV_TURN_SECRET:?Set an unguessable TURN secret in .env}
+    restart: unless-stopped
+  turn:
+    build:
+      context: ..
+      dockerfile: infra/turn/Dockerfile
+    environment:
+      CONV_HOST: ${CONV_HOST:-localhost}
+      CONV_PUBLIC_IP: ${CONV_PUBLIC_IP:?Set the server public IP}
+      CONV_TURN_SECRET: ${CONV_TURN_SECRET:?Set an unguessable TURN secret in .env}
+    ports: ["3478:3478", "3478:3478/udp", "49160-49200:49160-49200/udp"]
+    restart: unless-stopped
+volumes:
+  caddy-data:
+  caddy-config:

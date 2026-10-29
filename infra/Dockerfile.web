@@ -1,0 +1,18 @@
+FROM rust:1.90.0-bookworm AS wasm
+RUN rustup target add wasm32-unknown-unknown
+RUN curl -fsSL https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.129/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz | tar xz -C /tmp
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates ./crates
+RUN cargo build --locked --release -p conv-wasm --target wasm32-unknown-unknown && /tmp/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl/wasm-bindgen --target web --out-dir /pkg target/wasm32-unknown-unknown/release/conv_wasm.wasm
+FROM node:24-bookworm AS web
+RUN npm install -g pnpm@10.28.2
+WORKDIR /src
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web ./web
+COPY scripts ./scripts
+COPY --from=wasm /pkg ./web/src/generated
+RUN pnpm install --frozen-lockfile && pnpm build
+FROM caddy:2.10.2-alpine
+COPY infra/Caddyfile /etc/caddy/Caddyfile
+COPY --from=web /src/web/dist /srv

@@ -1,0 +1,12 @@
+FROM rust:1.90.0-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates ./crates
+RUN cargo build --locked --release -p conv-signaling
+FROM debian:bookworm-slim
+RUN useradd --system --uid 10001 conv
+COPY --from=build /src/target/release/conv-signaling /usr/local/bin/conv-signaling
+USER conv
+ENV CONV_SIGNAL_BIND=0.0.0.0:3001
+EXPOSE 3001
+ENTRYPOINT ["conv-signaling"]
