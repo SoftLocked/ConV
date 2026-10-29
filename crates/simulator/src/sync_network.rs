@@ -1,5 +1,6 @@
 //! Scheduled in-memory protocol messages. No node reads another node's state.
 use conv_document::ElementId;
+use conv_protocol::wire::{Reassembler, encode};
 use conv_protocol::{
     replication::ReplicationError,
     sync::{Effect, Message, SyncConfig, SyncPeer},
@@ -12,7 +13,7 @@ enum Event {
     Deliver {
         from: usize,
         to: usize,
-        message: Message,
+        frame: Vec<u8>,
     },
 }
 
@@ -41,6 +42,8 @@ pub struct SyncNetwork {
     now: u64,
     serial: u64,
     random: u64,
+    transfer: u64,
+    incoming: Vec<Reassembler>,
     faults: Faults,
     pub dropped: u64,
     pub requests_delivered: u64,
@@ -69,6 +72,8 @@ impl SyncNetwork {
             now: 0,
             serial: 0,
             random: seed,
+            transfer: 0,
+            incoming: (0..count).map(|_| Reassembler::new(1)).collect(),
             faults,
             dropped: 0,
             requests_delivered: 0,
@@ -112,25 +117,33 @@ impl SyncNetwork {
                 Effect::Send { to, message } => {
                     let to = usize::try_from(to - 1).expect("invalid peer ID");
                     assert!(to < self.peers.len());
-                    if self.blocked.contains(&(from, to))
-                        || self.next_random() % 1_000 < u64::from(self.faults.loss_per_thousand)
+                    self.transfer += 1;
+                    for frame in encode(1, from as u128 + 1, self.transfer, &message)
+                        .expect("simulation message too large")
                     {
-                        self.dropped += 1;
-                        continue;
+                        if self.blocked.contains(&(from, to))
+                            || self.next_random() % 1_000 < u64::from(self.faults.loss_per_thousand)
+                        {
+                            self.dropped += 1;
+                            continue;
+                        }
+                        let delay = self.next_random() % (self.faults.max_delay_ms + 1);
+                        if self.next_random() % 1_000
+                            < u64::from(self.faults.duplicate_per_thousand)
+                        {
+                            let duplicate_delay =
+                                self.next_random() % (self.faults.max_delay_ms + 1);
+                            self.enqueue(
+                                duplicate_delay,
+                                Event::Deliver {
+                                    from,
+                                    to,
+                                    frame: frame.clone(),
+                                },
+                            );
+                        }
+                        self.enqueue(delay, Event::Deliver { from, to, frame });
                     }
-                    let delay = self.next_random() % (self.faults.max_delay_ms + 1);
-                    if self.next_random() % 1_000 < u64::from(self.faults.duplicate_per_thousand) {
-                        let duplicate_delay = self.next_random() % (self.faults.max_delay_ms + 1);
-                        self.enqueue(
-                            duplicate_delay,
-                            Event::Deliver {
-                                from,
-                                to,
-                                message: message.clone(),
-                            },
-                        );
-                    }
-                    self.enqueue(delay, Event::Deliver { from, to, message });
                 }
             }
         }
@@ -168,16 +181,20 @@ impl SyncNetwork {
                     let effects = self.peers[peer].on_sync_timer();
                     self.apply(peer, effects);
                 }
-                Event::Deliver { from, to, message } => {
+                Event::Deliver { from, to, frame } => {
                     if self.blocked.contains(&(from, to)) {
                         self.dropped += 1;
                         continue;
                     }
-                    if matches!(&message, Message::Request(_)) {
-                        self.requests_delivered += 1;
+                    if let Ok(Some((sender, message))) = self.incoming[to].receive(self.now, &frame)
+                    {
+                        assert_eq!(sender, from as u128 + 1);
+                        if matches!(&message, Message::Request(_)) {
+                            self.requests_delivered += 1;
+                        }
+                        let effects = self.peers[to].receive(sender, message)?;
+                        self.apply(to, effects);
                     }
-                    let effects = self.peers[to].receive(from as u128 + 1, message)?;
-                    self.apply(to, effects);
                 }
             }
         }

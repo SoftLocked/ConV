@@ -1,8 +1,9 @@
 //! Host-driven periodic anti-entropy. The host provides timers and transport.
 use crate::replication::{CausalSummary, Mutation, Replica, ReplicationError, SyncRequest};
 use conv_document::ElementId;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Summary(CausalSummary),
     Request(Vec<SyncRequest>),

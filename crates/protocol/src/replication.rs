@@ -1,5 +1,6 @@
 //! In-memory range repair over immutable transaction fragments.
 //! Persistence and transport encoding are host responsibilities still to be added.
+use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 
@@ -7,7 +8,7 @@ use conv_document::{Document, EditError, ElementId, Writer};
 
 use crate::{MutationSummary, Range};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mutation {
     pub replica: u128,
     pub sequence: u64,
@@ -22,13 +23,13 @@ pub enum ReplicationError {
     Document(EditError),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncRequest {
     pub replica: u128,
     pub range: Range,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CausalSummary(BTreeMap<u128, MutationSummary>);
 
 impl CausalSummary {

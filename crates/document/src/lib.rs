@@ -1,17 +1,18 @@
 //! Clarity-first sequence reference model. See docs/crdt-spec.md.
 //! No transport, clocks, randomness, persistence, or browser dependencies.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A mutation sequence is contiguous per writer; an offset identifies its elements.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ElementId {
     pub replica: u128,
     pub sequence: u64,
     pub offset: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Insertion {
     pub id: ElementId,
     pub anchor: Option<ElementId>,
@@ -20,10 +21,31 @@ pub struct Insertion {
 }
 
 /// Immutable records and grow-only deletion markers form a partial state.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "DocumentState", into = "DocumentState")]
 pub struct Document {
     insertions: BTreeMap<ElementId, Insertion>,
     deletions: BTreeSet<ElementId>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DocumentState {
+    records: Vec<Insertion>,
+    deleted: Vec<ElementId>,
+}
+impl From<Document> for DocumentState {
+    fn from(doc: Document) -> Self {
+        Self {
+            records: doc.insertions.into_values().collect(),
+            deleted: doc.deletions.into_iter().collect(),
+        }
+    }
+}
+impl TryFrom<DocumentState> for Document {
+    type Error = &'static str;
+    fn try_from(state: DocumentState) -> Result<Self, Self::Error> {
+        Document::fragment(state.records, state.deleted).map_err(|_| "invalid document state")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,30 +123,35 @@ impl Document {
         Ok(())
     }
 
-    /// Iterative depth-first traversal; unresolved subtrees stay invisible.
-    /// Deliberately simple and quadratic: this is the reference, not the live editor.
-    pub fn text(&self) -> String {
-        let mut text = String::new();
-        let mut pending = vec![None];
-        let mut visited = BTreeSet::new();
-        while let Some(anchor) = pending.pop() {
-            if let Some(id) = anchor {
-                if !visited.insert(id) {
-                    continue;
-                }
-                if !self.deletions.contains(&id) {
-                    text.push(self.insertions[&id].value);
-                }
-            }
-            let mut children: Vec<_> = self
-                .insertions
-                .values()
-                .filter(|record| record.anchor == anchor)
-                .collect();
-            children.sort_by_key(|record| (record.logical_time, record.id));
-            pending.extend(children.into_iter().map(|record| Some(record.id)));
+    /// Stable element IDs in rendered order, used by editor position adapters.
+    pub fn visible_elements(&self) -> Vec<(ElementId, char)> {
+        let mut children: BTreeMap<Option<ElementId>, Vec<&Insertion>> = BTreeMap::new();
+        for record in self.insertions.values() {
+            children.entry(record.anchor).or_default().push(record);
         }
-        text
+        for siblings in children.values_mut() {
+            siblings.sort_by_key(|record| (record.logical_time, record.id));
+        }
+        let mut output = Vec::new();
+        let mut pending = vec![None];
+        while let Some(anchor) = pending.pop() {
+            if let Some(id) = anchor
+                && !self.deletions.contains(&id)
+            {
+                output.push((id, self.insertions[&id].value));
+            }
+            if let Some(siblings) = children.get(&anchor) {
+                pending.extend(siblings.iter().map(|record| Some(record.id)));
+            }
+        }
+        output
+    }
+
+    pub fn text(&self) -> String {
+        self.visible_elements()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect()
     }
 }
 

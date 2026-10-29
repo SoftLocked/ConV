@@ -6,7 +6,7 @@ custom Rust replication engine shared by native peers and browser WebAssembly.
 Implementation is at the early replication milestone. The repository contains
 a draft CRDT specification, a reference document model, in-memory mutation
 history, periodic range repair, and a deterministic delivery harness. There is no
-browser editor, transport encoding, network connection, persistence, or benchmark
+browser editor, network connection, persistence, or benchmark
 result yet.
 
 ## Environment
@@ -48,12 +48,12 @@ The protocol peer emits sends and timer requests; the host provides the network
 and clock. Periodic summaries trigger missing-range requests and bounded replies.
 The simulator runs the same peer code using queued messages and a virtual clock,
 including seeded loss, duplication, reordering, and partitions. This path uses
-in-memory messages. The original `partition` example remains a full-state baseline.
+Postcard messages split into checksummed frames of at most 1,200 bytes. The original `partition` example remains a full-state baseline.
 Virtual delivery times are scenario inputs, not performance results. The
-reference renderer prioritizes clarity and has quadratic traversal.
+renderer indexes insertion anchors for traversal.
 
-Next: version and encode network messages with validation and size limits, then
-add snapshot bootstrap and SWIM membership. Persistence and the browser editor
+Next: add durable local history, native UDP transport, snapshot bootstrap, and
+SWIM membership. Persistence and the browser editor
 follow the core protocol checks.
 
 Node 24 is already installed. pnpm, the WASM target, and browser dependencies will
