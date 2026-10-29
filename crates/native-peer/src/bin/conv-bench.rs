@@ -214,7 +214,7 @@ async fn main() -> Result<()> {
     merges.sort_unstable();
     let percentile = |p: usize| {
         merges
-            .get(merges.len().saturating_sub(1) * p / 100)
+            .get((merges.len() * p).div_ceil(100).saturating_sub(1))
             .copied()
             .unwrap_or(0)
     };

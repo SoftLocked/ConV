@@ -51,7 +51,7 @@ test('measure isolated WASM merges and foreground editor latency', async ({ brow
   await Promise.all(editors.map(editor => expect(editor).toBeVisible()));
   await editors[0].fill('base'); await Promise.all(editors.map(editor => expect(editor).toHaveText('base', { timeout: 15_000 })));
   const visibility: number[] = [];
-  for (let n = 1; n <= 30; n++) {
+  for (let n = 1; n <= 100; n++) {
     const before = controllerClock.now();
     await editors[0].press('End'); await editors[0].press('z');
     await expect.poll(async () => (await Promise.all(editors.slice(1).map(editor => editor.textContent()))).every(text => text === 'base' + 'z'.repeat(n)), { intervals: [5, 10, 20, 40] }).toBe(true);
@@ -63,6 +63,6 @@ test('measure isolated WASM merges and foreground editor latency', async ({ brow
   await writeFile(path.join(root, 'browser.json'), JSON.stringify({ commit: execFileSync('git', ['rev-parse', 'HEAD']).toString().trim(),
     source_dirty: !!execFileSync('git', ['status', '--porcelain', '--untracked-files=no']).toString(), browser: browser.version(), hardware: cpus()[0]?.model, device: 'single WSL/Linux host, headless Chromium, eight independent browser contexts', wasm,
     local_render_proxy: { samples: local, p95_ms: local[94], document_bytes: 1_024, method: 'trusted keydown to second animation-frame callback; upper-bound proxy, not a physical screen measurement' },
-    remote_visibility: { samples_ms: visibility, p95_ms: visibility[27], peers: 8, writers: 1, network: 'loopback WebRTC direct', method: 'one controller monotonic clock from keyboard command to all seven remote DOMs; includes automation overhead; waits for prior edit before next' },
+    remote_visibility: { samples_ms: visibility, p95_ms: visibility[Math.ceil(visibility.length * .95) - 1], peers: 8, writers: 1, network: 'loopback WebRTC direct', method: 'one controller monotonic clock from keyboard command to all seven remote DOMs; includes automation overhead; waits for prior edit before next' },
   }, null, 2));
 });

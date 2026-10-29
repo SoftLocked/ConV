@@ -164,7 +164,7 @@ async fn main() -> Result<()> {
     }
     samples.sort_unstable();
     let qualified = samples.len() >= 1000 && failed == 0;
-    let p99 = qualified.then(|| samples[(samples.len() - 1) * 99 / 100]);
+    let p99 = qualified.then(|| samples[(samples.len() * 99).div_ceil(100).saturating_sub(1)]);
     let commit = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .output()?;

@@ -46,7 +46,7 @@ fn main() -> Result<()> {
     timings.sort_unstable();
     let percentile = |p: usize| {
         timings
-            .get(timings.len().saturating_sub(1) * p / 100)
+            .get((timings.len() * p).div_ceil(100).saturating_sub(1))
             .copied()
             .unwrap_or(0)
     };
