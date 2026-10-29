@@ -40,6 +40,7 @@ worker.onmessage = ({ data }) => {
       for (const id of data.ids) dispatch(engine.hello(id) as Update);
     } else if (data.type === 'tick') {
       dispatch(engine.tick(now(), ++ticks % 10 === 0) as Update);
+    } else if (data.type === 'snapshot') { worker.postMessage({ type: 'snapshot', backup: engine.backup() });
     } else if (data.type === 'name') { name = String(data.name).slice(0, 120); await persist(); }
   }).catch(error => worker.postMessage({ type: 'error', message: String(error) }));
 };

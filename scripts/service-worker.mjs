@@ -9,6 +9,6 @@ self.addEventListener('install', event => { event.waitUntil(caches.open(VERSION)
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('conv-') && key !== VERSION).map(key => caches.delete(key)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
-  event.respondWith(caches.match(event.request).then(saved => saved || fetch(event.request).catch(error => { if (event.request.mode === 'navigate') return caches.match('/index.html'); throw error; })));
+  event.respondWith(caches.match(event.request, { ignoreVary: true }).then(saved => saved || fetch(event.request).catch(error => { if (event.request.mode === 'navigate') return caches.match('/index.html'); throw error; })));
 });
 `);

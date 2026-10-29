@@ -165,6 +165,39 @@ async fn session(socket: WebSocket, app: App, join: Join) {
     }
 }
 
+async fn ice(State(app): State<App>) -> impl IntoResponse {
+    use base64::Engine;
+    use hmac::{Hmac, Mac};
+    let mut servers = vec![serde_json::json!({"urls":"stun:stun.l.google.com:19302"})];
+    if let Ok(url) = std::env::var("CONV_TURN_URL") {
+        let Ok(secret) = std::env::var("CONV_TURN_SECRET") else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+        let expiry = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3_600;
+        let username = format!("{expiry}:conv");
+        let mut mac = Hmac::<sha1::Sha1>::new_from_slice(secret.as_bytes())
+            .expect("HMAC accepts any key size");
+        mac.update(username.as_bytes());
+        let credential =
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        servers.push(serde_json::json!({"urls":url, "username":username, "credential":credential}));
+    }
+    let mut response = axum::Json(serde_json::json!({"iceServers":servers})).into_response();
+    if let Ok(origin) = app.origin.parse() {
+        response
+            .headers_mut()
+            .insert("access-control-allow-origin", origin);
+    }
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
+    response
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let bind = std::env::var("CONV_SIGNAL_BIND").unwrap_or_else(|_| "127.0.0.1:3001".into());
@@ -174,6 +207,7 @@ async fn main() -> anyhow::Result<()> {
     };
     let router = Router::new()
         .route("/health", get(|| async { "ok" }))
+        .route("/ice", get(ice))
         .route("/signal", get(join))
         .with_state(app);
     let listener = tokio::net::TcpListener::bind(&bind).await?;

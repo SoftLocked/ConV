@@ -1,4 +1,4 @@
-export type Person = { id: string; name: string; connected: boolean };
+export type Person = { id: string; name: string; connected: boolean; relay?: boolean };
 type Entry = { pc: RTCPeerConnection; channel?: RTCDataChannel; presence?: RTCDataChannel; early: RTCIceCandidateInit[]; queue: Uint8Array[]; queued: number; lastCursor?: number; lastSeen?: number };
 export class Mesh {
   private socket?: WebSocket;
@@ -13,11 +13,16 @@ export class Mesh {
   onStatus: (status: string) => void = () => {};
   constructor(private room: string, private id: string, private name: string) {}
   async start() {
-    const iceUrl = import.meta.env.VITE_ICE_URL;
+    const iceUrl = import.meta.env.VITE_ICE_URL ?? '/ice';
     if (iceUrl) {
-      const response = await fetch(iceUrl);
-      if (!response.ok) throw new Error('Unable to obtain connectivity credentials');
-      this.configuration.iceServers = (await response.json()).iceServers;
+      try {
+        const response = await fetch(iceUrl);
+        if (!response.ok) throw new Error('Unable to obtain connectivity credentials');
+        this.configuration.iceServers = (await response.json()).iceServers;
+      } catch {
+        this.configuration.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+        this.onStatus(navigator.onLine ? 'Connectivity service unavailable' : 'Offline');
+      }
     } else this.configuration.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
     if (new URLSearchParams(location.search).has('relay')) this.configuration.iceTransportPolicy = 'relay';
     this.signal();
@@ -25,7 +30,8 @@ export class Mesh {
   private signal() {
     if (this.stopped) return;
     this.onStatus('Connecting');
-    const url = new URL(import.meta.env.VITE_SIGNAL_URL ?? 'ws://localhost:3001/signal');
+    const url = new URL(import.meta.env.VITE_SIGNAL_URL ?? '/signal', location.href);
+    url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     url.search = new URLSearchParams({ room: this.room, session: this.id, name: this.name }).toString();
     this.socket = new WebSocket(url);
     this.socket.onopen = () => this.onStatus('Online');
@@ -68,7 +74,11 @@ export class Mesh {
   }
   private notify() { this.onPeople([...this.people.values()]); }
   private async add(person: { id: string; name: string }) {
-    if (person.id === this.id || this.peers.has(person.id) || this.peers.size >= 7) return;
+    if (person.id === this.id) return;
+    const existing = this.peers.get(person.id);
+    if (existing?.channel?.readyState === 'open') return;
+    if (existing) { existing.pc.close(); this.peers.delete(person.id); }
+    if (this.peers.size >= 7) return;
     this.people.set(person.id, { ...person, connected: false });
     const pc = new RTCPeerConnection(this.configuration);
     const entry: Entry = { pc, early: [], queue: [], queued: 0 };
@@ -79,6 +89,14 @@ export class Mesh {
       const saved = this.people.get(person.id);
       if (saved) saved.connected = entry.channel?.readyState === 'open';
       this.notify();
+      if (pc.connectionState === 'connected') pc.getStats().then(stats => {
+        for (const report of stats.values()) if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+          const candidate = stats.get(report.localCandidateId);
+          const state = this.people.get(person.id);
+          if (state) state.relay = candidate?.candidateType === 'relay';
+        }
+        this.notify();
+      }).catch(() => {});
     };
     const attach = (channel: RTCDataChannel) => {
       channel.binaryType = 'arraybuffer';
@@ -95,8 +113,8 @@ export class Mesh {
       entry.channel = channel;
       channel.bufferedAmountLowThreshold = 64 * 1024;
       channel.onbufferedamountlow = () => this.flush(entry);
-      channel.onopen = () => { this.people.get(person.id)!.connected = true; this.flush(entry); this.notify(); };
-      channel.onclose = () => { this.people.get(person.id)!.connected = false; this.notify(); };
+      channel.onopen = () => { const personState = this.people.get(person.id); if (personState) personState.connected = true; this.flush(entry); this.notify(); };
+      channel.onclose = () => { const personState = this.people.get(person.id); if (personState) personState.connected = false; this.notify(); };
       channel.onmessage = ({ data }) => { if (data instanceof ArrayBuffer && data.byteLength <= 1_200) this.onFrame(new Uint8Array(data)); };
     };
     pc.ondatachannel = ({ channel }) => attach(channel);
@@ -128,5 +146,11 @@ export class Mesh {
   cursor(position: number[]) {
     for (const entry of this.peers.values()) if (entry.presence?.readyState === 'open') entry.presence.send(JSON.stringify({ cursor: position }));
   }
+  pause() {
+    this.stopped = true; clearTimeout(this.retry); this.socket?.close();
+    for (const entry of this.peers.values()) entry.pc.close();
+    this.peers.clear(); this.people.clear(); this.notify(); this.onStatus('Offline');
+  }
+  resume() { this.stopped = false; this.signal(); }
   close() { this.stopped = true; clearTimeout(this.retry); this.socket?.close(); for (const entry of this.peers.values()) entry.pc.close(); }
 }

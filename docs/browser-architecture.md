@@ -30,3 +30,15 @@ WebRTC connections remain open when a signaling session disconnects.
 
 The current browser room uses fixed membership timing. Real-device, background
 tab and WAN measurements are still required before tuning those defaults.
+
+IME composition defers remote painting. On composition end the worker supplies
+its retained history, which merges with any newer synchronous local edits. This
+avoids interrupting composition while preventing an unbounded deferred-frame
+queue. Generic editor/browser undo shortcuts are disabled until collaborative
+undo is designed. Presence labels are decoration metadata, not document text.
+
+Browser checks now include eight contexts, explicit offline editing on both
+sides, a signaling outage, forced local TURN (selected candidate verified),
+Chromium IME events, large paste/backup restore, and production service-worker
+offline reload. OS-level composition and separate physical networks still need
+manual verification.
