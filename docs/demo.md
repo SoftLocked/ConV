@@ -28,3 +28,21 @@ browser participants or substitute simulated timing for network measurements.
 The recording needs no external video editor or FFmpeg installation. Videos are
 generated local artifacts and are ignored by Git. Re-record from a committed
 source tree if the native report is intended as published evidence.
+
+## Five browsers visible together
+
+```sh
+node scripts/record-five-browsers.mjs
+```
+
+This creates `demo/five-browsers.webm`, a final PNG and a JSON verification
+report. Five independent Chromium contexts run the actual application, each
+with isolated storage and its own WebRTC connections. A sixth context records
+a dashboard of their live viewport screenshots. No document DOM is copied
+between clients. Compact demo-only CSS makes every editor readable in the grid.
+
+The scenario checks every expected contribution, simultaneous typing on five
+separate checklist lines, and offline edits on both sides of Eve's disconnect.
+Every checkpoint compares all five actual editor texts with the expected text.
+This local visual demonstration is not a browser latency benchmark. Ports
+3006/5176 must be free; owned services are stopped on exit.
