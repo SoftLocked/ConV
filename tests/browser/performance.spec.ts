@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { performance } from 'node:perf_hooks';
+import { performance as controllerClock } from 'node:perf_hooks';
 import path from 'node:path';
 
 const enabled = !!process.env.CONV_BENCH_BROWSER;
@@ -52,10 +52,10 @@ test('measure isolated WASM merges and foreground editor latency', async ({ brow
   await editors[0].fill('base'); await Promise.all(editors.map(editor => expect(editor).toHaveText('base', { timeout: 15_000 })));
   const visibility: number[] = [];
   for (let n = 1; n <= 30; n++) {
-    const before = performance.now();
+    const before = controllerClock.now();
     await editors[0].press('End'); await editors[0].press('z');
     await expect.poll(async () => (await Promise.all(editors.slice(1).map(editor => editor.textContent()))).every(text => text === 'base' + 'z'.repeat(n)), { intervals: [5, 10, 20, 40] }).toBe(true);
-    visibility.push(performance.now() - before);
+    visibility.push(controllerClock.now() - before);
   }
   await Promise.all(contexts.map(context => context.close()));
   visibility.sort((a, b) => a - b);
