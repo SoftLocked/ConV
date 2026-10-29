@@ -1,0 +1,181 @@
+//! Real UDP loopback experiment. Peers are Tokio tasks in one process.
+use anyhow::{Result, anyhow};
+use clap::Parser;
+use conv_protocol::{
+    sync::{Effect, Message, SyncConfig, SyncPeer},
+    wire::{Reassembler, encode},
+};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
+use tokio::{net::UdpSocket, sync::watch};
+
+#[derive(Parser)]
+struct Args {
+    #[arg(long)]
+    full_state: bool,
+    #[arg(long, default_value_t = 10)]
+    peers: usize,
+    #[arg(long, default_value_t = 10)]
+    writers: usize,
+    #[arg(long, default_value_t = 5)]
+    edits_per_second: u64,
+    #[arg(long, default_value_t = 5)]
+    seconds: u64,
+    #[arg(long, default_value_t = 10)]
+    settle_seconds: u64,
+    #[arg(long, default_value_t = 1024)]
+    document_bytes: usize,
+    #[arg(long, default_value = "benchmarks/raw-results/latest.json")]
+    output: std::path::PathBuf,
+}
+
+struct ResultRow {
+    peer: SyncPeer,
+    sent: u64,
+    received: u64,
+    sent_frames: u64,
+    received_frames: u64,
+    merges: Vec<u64>,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Args::parse();
+    anyhow::ensure!(
+        args.peers > 0
+            && args.peers <= 500
+            && args.edits_per_second > 0
+            && args.edits_per_second <= 1000
+    );
+    let writers = args.writers.min(args.peers);
+    let room = uuid::Uuid::new_v4().as_u128();
+    let mut sockets = Vec::new();
+    for _ in 0..args.peers {
+        sockets.push(UdpSocket::bind("127.0.0.1:0").await?);
+    }
+    let addresses: BTreeMap<_, _> = sockets
+        .iter()
+        .enumerate()
+        .map(|(i, socket)| Ok((i as u128 + 1, socket.local_addr()?)))
+        .collect::<Result<_>>()?;
+    let mut bootstrap = conv_protocol::replication::Replica::new(u128::MAX);
+    let initial = bootstrap
+        .insert(None, &"x".repeat(args.document_bytes))
+        .map_err(|e| anyhow!("bootstrap: {e:?}"))?
+        .unwrap();
+    let start = Instant::now();
+    let edit_duration = Duration::from_secs(args.seconds);
+    let (stop, receiver) = watch::channel(false);
+    let mut tasks = Vec::new();
+    for (index, socket) in sockets.into_iter().enumerate() {
+        let addresses = addresses.clone();
+        let mut receiver = receiver.clone();
+        let initial = initial.clone();
+        let full_state = args.full_state;
+        let edit_period = Duration::from_micros(1_000_000 / args.edits_per_second);
+        tasks.push(tokio::spawn(async move {
+            let id = index as u128 + 1;
+            let neighbors = addresses.keys().copied().filter(|&other| other != id).collect();
+            let mut replica = conv_protocol::replication::Replica::new(id);
+            replica.receive(&initial).map_err(|e| anyhow!("bootstrap: {e:?}"))?;
+            let mut peer = SyncPeer::from_replica(replica, neighbors, SyncConfig::default());
+            let mut incoming = Reassembler::new(room);
+            let mut buffer = [0_u8; 1_201];
+            let mut sync = tokio::time::interval(Duration::from_secs(1));
+            let mut probes = tokio::time::interval(Duration::from_millis(100));
+            let mut edits = tokio::time::interval(edit_period);
+            let mut sequence = 0_u64; let mut sent = 0; let mut received = 0; let mut sent_frames = 0; let mut received_frames = 0; let mut merges = Vec::new();
+            loop {
+                let now = start.elapsed().as_millis() as u64;
+                let effects = tokio::select! {
+                    _ = receiver.changed() => break,
+                    _ = sync.tick() => peer.on_sync_timer(),
+                    _ = probes.tick() => peer.on_membership_timer(now),
+                    _ = edits.tick(), if index < writers && start.elapsed() < edit_duration => {
+                        peer.insert(None, "z").map_err(|e| anyhow!("edit: {e:?}"))?
+                    }
+                    datagram = socket.recv_from(&mut buffer) => {
+                        let (len, _) = datagram?; received += len as u64; received_frames += 1;
+                        if let Ok(Some((sender, message))) = incoming.receive(now, &buffer[..len]) {
+                            let is_mutation = matches!(message, Message::Mutation(_));
+                            let merge_start = Instant::now();
+                            let effects = peer.receive_at(sender, message, now).map_err(|e| anyhow!("receive: {e:?}"))?;
+                            if is_mutation { merges.push(merge_start.elapsed().as_nanos() as u64); }
+                            effects
+                        } else { Vec::new() }
+                    }
+                };
+                for effect in effects {
+                    if let Effect::Send { to, mut message } = effect {
+                        if full_state && matches!(message, Message::Mutation(_)) {
+                            message = Message::Snapshot(peer.replica().snapshot());
+                        }
+                        sequence += 1;
+                        let frames = encode(room, id, sequence, &message).map_err(|e| anyhow!("encode: {e:?}"))?;
+                        for frame in frames { sent += socket.send_to(&frame, addresses[&to]).await? as u64; sent_frames += 1; }
+                    }
+                }
+            }
+            Ok::<_, anyhow::Error>(ResultRow { peer, sent, received, sent_frames, received_frames, merges })
+        }));
+    }
+    tokio::time::sleep(edit_duration + Duration::from_secs(args.settle_seconds)).await;
+    stop.send(true)?;
+    let mut rows = Vec::new();
+    for task in tasks {
+        rows.push(task.await??);
+    }
+    let elapsed = start.elapsed().as_secs_f64();
+    let converged = rows.windows(2).all(|pair| {
+        pair[0].peer.replica().document() == pair[1].peer.replica().document()
+            && pair[0].peer.replica().summary() == pair[1].peer.replica().summary()
+    });
+    let mut merges: Vec<_> = rows
+        .iter_mut()
+        .flat_map(|row| std::mem::take(&mut row.merges))
+        .collect();
+    merges.sort_unstable();
+    let percentile = |p: usize| {
+        merges
+            .get(merges.len().saturating_sub(1) * p / 100)
+            .copied()
+            .unwrap_or(0)
+    };
+    let commit = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    let toolchain = std::process::Command::new("rustc")
+        .arg("--version")
+        .output()?;
+    let report = serde_json::json!({
+        "commit":String::from_utf8_lossy(&commit.stdout).trim(), "toolchain":String::from_utf8_lossy(&toolchain.stdout).trim(),
+        "mode":if args.full_state {"full-state"} else {"delta"}, "seed":0,
+        "hardware":std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default().lines().find(|line| line.starts_with("model name")).unwrap_or("unknown"),
+        "process_memory":std::fs::read_to_string("/proc/self/status").unwrap_or_default().lines().filter(|line| line.starts_with("VmHWM") || line.starts_with("VmRSS")).collect::<Vec<_>>(),
+        "source_dirty":!std::process::Command::new("git").args(["status", "--porcelain", "--untracked-files=no"]).output()?.stdout.is_empty(),
+        "transport_overhead":"28 bytes per IPv4/UDP datagram, reported separately from application bytes",
+        "transport":"UDP loopback", "execution":"Tokio tasks in one process", "peers":args.peers,
+        "writers":writers,"edits_per_second_per_writer":args.edits_per_second,"edit_seconds":args.seconds,"settle_seconds":args.settle_seconds,
+        "document_bytes":args.document_bytes,"elapsed_seconds":elapsed,"converged":converged,
+        "bootstrap":"identical initial state preloaded before network measurement", "measurement":"sent and received application frame bytes including headers, control and repair; excludes IP/UDP headers",
+        "per_node": rows.iter().map(|row| serde_json::json!({"sent":row.sent,"received":row.received,"sent_frames":row.sent_frames,"received_frames":row.received_frames,"ipv4_udp_overhead":28 * (row.sent_frames + row.received_frames),"visible_bytes":row.peer.replica().document().text().len(),"serialized_history_bytes":row.peer.replica().backup(room).map(|bytes| bytes.len()).unwrap_or(0),"bytes_per_second":(row.sent+row.received) as f64/elapsed,"mutations":row.peer.replica().history_len()})).collect::<Vec<_>>(),
+        "protocol_mutation_merge_ns":{"samples":merges.len(),"p50":percentile(50),"p95":percentile(95),"p99":percentile(99)},
+        "limitations":["single-host loopback", "merge includes protocol history bookkeeping", "no warmup", "CPU-time profiling pending", "not a browser or WAN result"]
+    });
+    if let Some(parent) = args.output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&args.output, serde_json::to_vec_pretty(&report)?)?;
+    println!(
+        "{} peers, converged={converged}; report {}",
+        args.peers,
+        args.output.display()
+    );
+    anyhow::ensure!(
+        converged,
+        "replicas did not converge before the experiment deadline"
+    );
+    Ok(())
+}
