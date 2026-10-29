@@ -13,3 +13,6 @@
 /test-results/
 /web/playwright-report/
 /web/test-results/
+__pycache__/
+*.pyc
+/demo/

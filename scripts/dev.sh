@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build -p conv-signaling
-if [[ ! -f web/src/generated/conv_wasm_bg.wasm ]]; then ./scripts/build-wasm.sh; fi
+./scripts/build-wasm.sh
 CONV_ORIGIN="${CONV_ORIGIN:-http://127.0.0.1:5173}" ./target/debug/conv-signaling &
 conv_signal_pid=$!
 setsid pnpm --dir web dev &
