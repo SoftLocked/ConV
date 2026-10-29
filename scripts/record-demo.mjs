@@ -27,7 +27,7 @@ try {
   });
   await wait('http://127.0.0.1:3005/health'); await wait('http://127.0.0.1:5175');
   browser = await chromium.launch();
-  const a = await browser.newContext({ viewport: { width: 1280, height: 800 }, recordVideo: { dir: fileURLToPath(output), size: { width: 1280, height: 800 } } });
+  const a = await browser.newContext({ viewport: { width: 1280, height: 960 }, recordVideo: { dir: fileURLToPath(output), size: { width: 1280, height: 960 } } });
   const b = await browser.newContext();
   await a.addInitScript(() => sessionStorage.setItem('conv-name', 'Alice'));
   await b.addInitScript(() => sessionStorage.setItem('conv-name', 'Bob'));
@@ -44,9 +44,10 @@ try {
   await first.press('Control+End'); await first.pressSequentially('\nAlice keeps writing while Bob is offline.\n', { delay: 30 });
   await second.press('Control+End'); await second.pressSequentially('\nBob has an offline idea worth keeping.\n', { delay: 20 });
   await bob.getByRole('button', { name: 'Reconnect', exact: true }).click();
-  await expect(first).toContainText('Bob has an offline idea', { timeout: 15_000 });
-  await expect(second).toContainText('Alice keeps writing');
-  await alice.getByRole('button', { name: 'Connection details' }).click();
+  await expect(first).toContainText('Bob has an offline idea worth keeping.', { timeout: 15_000 });
+  await expect(second).toContainText('Alice keeps writing while Bob is offline.');
+  await expect.poll(async () => (await first.textContent()) === (await second.textContent())).toBe(true);
+  await alice.waitForTimeout(1_000);
   await stop(signaling);
   await first.press('Control+End'); await first.pressSequentially('\nSignaling is stopped. Our established peer connection still works.\n', { delay: 30 });
   await expect(second).toContainText('Our established peer connection still works');
