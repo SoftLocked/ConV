@@ -83,6 +83,10 @@ impl Replica {
     pub fn summary(&self) -> &CausalSummary {
         &self.summary
     }
+    pub(crate) fn history_values(&self) -> impl Iterator<Item = &Mutation> {
+        self.history.values()
+    }
+
     pub fn history_len(&self) -> usize {
         self.history.len()
     }

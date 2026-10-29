@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/document", "crates/simulator", "crates/protocol"]
+members = ["crates/document", "crates/simulator", "crates/protocol", "crates/native-peer"]
 resolver = "2"
 
 [workspace.package]
@@ -12,3 +12,7 @@ rust-version = "1.90"
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", features = ["alloc"] }
 crc32fast = "1"
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+uuid = { version = "1", features = ["v4", "js"] }

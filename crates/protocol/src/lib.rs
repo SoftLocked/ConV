@@ -129,3 +129,5 @@ fn push_range(ranges: &mut Vec<Range>, start: u64, end: u64, max_ranges: usize) 
 
 pub mod sync;
 pub mod wire;
+
+pub mod backup;

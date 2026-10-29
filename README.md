@@ -6,8 +6,8 @@ custom Rust replication engine shared by native peers and browser WebAssembly.
 Implementation is at the early replication milestone. The repository contains
 a draft CRDT specification, a reference document model, in-memory mutation
 history, periodic range repair, and a deterministic delivery harness. There is no
-browser editor, network connection, persistence, or benchmark
-result yet.
+browser editor or benchmark result yet. A native UDP adapter supports durable
+local history and restart recovery.
 
 ## Environment
 
@@ -52,9 +52,7 @@ Postcard messages split into checksummed frames of at most 1,200 bytes. The orig
 Virtual delivery times are scenario inputs, not performance results. The
 renderer indexes insertion anchors for traversal.
 
-Next: add durable local history, native UDP transport, snapshot bootstrap, and
-SWIM membership. Persistence and the browser editor
-follow the core protocol checks.
+Next: snapshot bootstrap, SWIM membership, and the local browser editor.
 
 Node 24 is already installed. pnpm, the WASM target, and browser dependencies will
 be configured during the browser milestone. Docker is unnecessary for core work;
@@ -63,3 +61,27 @@ Settings > Resources > WSL Integration.
 
 See [the CRDT draft](docs/crdt-spec.md) and
 [the full proposal](.claude/decentralized_text_editor_proposal.md).
+
+## Native UDP peers
+
+Use two terminals with separate state files:
+
+```sh
+cargo run -p conv-native-peer -- --bind 127.0.0.1:7001 --seed 127.0.0.1:7002 --state alice.conv
+cargo run -p conv-native-peer -- --bind 127.0.0.1:7002 --seed 127.0.0.1:7001 --state bob.conv
+```
+
+Type a line to append it; `/show` prints the document and `/quit` saves and exits.
+Restart with the same state file to restore history under a fresh writer ID.
+Use distinct `--room` numbers to isolate rooms. UDP is a cooperative laboratory
+transport, without encryption or authenticated membership. Browser transport
+will use WebRTC. A process crash can leave a `.conv.lock` file; remove it only
+after confirming the owning process has stopped.
+
+```sh
+cargo build -p conv-native-peer
+python3 tests/native/smoke.py
+```
+
+The smoke test uses two real processes on loopback, including durable restart
+and missing-edit recovery. It is not a scalability or WAN performance result.

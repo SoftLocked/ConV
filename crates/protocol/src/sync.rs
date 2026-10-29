@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
+    Hello,
     Summary(CausalSummary),
     Request(Vec<SyncRequest>),
     Mutation(Mutation),
@@ -48,6 +49,18 @@ impl SyncPeer {
             neighbors,
             config,
         }
+    }
+
+    pub fn from_replica(replica: Replica, neighbors: Vec<u128>, config: SyncConfig) -> Self {
+        assert!(config.interval_ms > 0 && config.max_ranges > 0 && config.max_reply_items > 0);
+        Self {
+            replica,
+            neighbors,
+            config,
+        }
+    }
+    pub fn set_neighbors(&mut self, neighbors: Vec<u128>) {
+        self.neighbors = neighbors;
     }
 
     pub fn replica(&self) -> &Replica {
@@ -97,6 +110,10 @@ impl SyncPeer {
         message: Message,
     ) -> Result<Vec<Effect>, ReplicationError> {
         match message {
+            Message::Hello => Ok(vec![Effect::Send {
+                to: from,
+                message: Message::Summary(self.replica.summary().clone()),
+            }]),
             Message::Summary(remote) => {
                 let requests = self
                     .replica
