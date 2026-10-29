@@ -1,0 +1,31 @@
+{
+  "user_seconds": 79.62,
+  "system_seconds": 42.51,
+  "max_rss_kib": 3142560,
+  "elapsed_seconds": 43.79,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-bench",
+    "--peers",
+    "200",
+    "--writers",
+    "200",
+    "--edits-per-second",
+    "5",
+    "--seconds",
+    "10",
+    "--settle-seconds",
+    "30",
+    "--seed",
+    "2",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/stress-results/20261029T231125Z/lossy-partition-seed-2.json",
+    "--drop-per-million",
+    "10000",
+    "--partition-start-seconds",
+    "2",
+    "--partition-seconds",
+    "3"
+  ],
+  "returncode": 1,
+  "scope": "whole process including preparation, settling and report serialization"
+}

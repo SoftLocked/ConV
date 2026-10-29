@@ -1,0 +1,25 @@
+{
+  "user_seconds": 111.86,
+  "system_seconds": 64.12,
+  "max_rss_kib": 3310528,
+  "elapsed_seconds": 47.6,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-bench",
+    "--peers",
+    "200",
+    "--writers",
+    "200",
+    "--edits-per-second",
+    "5",
+    "--seconds",
+    "10",
+    "--settle-seconds",
+    "30",
+    "--seed",
+    "0",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/stress-results/20261029T231125Z/healthy-seed-0.json"
+  ],
+  "returncode": 1,
+  "scope": "whole process including preparation, settling and report serialization"
+}

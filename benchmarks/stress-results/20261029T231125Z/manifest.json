@@ -1,0 +1,207 @@
+{
+  "configuration": {
+    "peers": 200,
+    "seconds": 10,
+    "settle_seconds": 30,
+    "edits_per_second": 5,
+    "seeds": "0,1,2",
+    "cases": [
+      "healthy",
+      "lossy-partition",
+      "deletion-heavy"
+    ],
+    "min_load_fraction": 0.95,
+    "max_rss_mib": null
+  },
+  "runs": [
+    {
+      "case": "healthy",
+      "seed": 0,
+      "report": "healthy-seed-0.json",
+      "resources": "healthy-seed-0.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 9980,
+      "requested": 10000,
+      "achieved_load_fraction": 0.998,
+      "loss_drops": 0,
+      "partition_drops": 0,
+      "max_rss_mib": 3232.9375,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "healthy",
+      "seed": 1,
+      "report": "healthy-seed-1.json",
+      "resources": "healthy-seed-1.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 0,
+      "partition_drops": 0,
+      "max_rss_mib": 3502.95703125,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "healthy",
+      "seed": 2,
+      "report": "healthy-seed-2.json",
+      "resources": "healthy-seed-2.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 0,
+      "partition_drops": 0,
+      "max_rss_mib": 3505.328125,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "lossy-partition",
+      "seed": 0,
+      "report": "lossy-partition-seed-0.json",
+      "resources": "lossy-partition-seed-0.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 36075,
+      "partition_drops": 63083,
+      "max_rss_mib": 3057.91015625,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "lossy-partition",
+      "seed": 1,
+      "report": "lossy-partition-seed-1.json",
+      "resources": "lossy-partition-seed-1.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 36061,
+      "partition_drops": 63022,
+      "max_rss_mib": 3062.4921875,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "lossy-partition",
+      "seed": 2,
+      "report": "lossy-partition-seed-2.json",
+      "resources": "lossy-partition-seed-2.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 36220,
+      "partition_drops": 64998,
+      "max_rss_mib": 3068.90625,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "deletion-heavy",
+      "seed": 0,
+      "report": "deletion-heavy-seed-0.json",
+      "resources": "deletion-heavy-seed-0.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 0,
+      "partition_drops": 0,
+      "max_rss_mib": 2805.47265625,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "deletion-heavy",
+      "seed": 1,
+      "report": "deletion-heavy-seed-1.json",
+      "resources": "deletion-heavy-seed-1.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 0,
+      "partition_drops": 0,
+      "max_rss_mib": 2801.484375,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    },
+    {
+      "case": "deletion-heavy",
+      "seed": 2,
+      "report": "deletion-heavy-seed-2.json",
+      "resources": "deletion-heavy-seed-2.resources.json",
+      "returncode": 1,
+      "timed_out": false,
+      "verified": false,
+      "writers": 200,
+      "generated": 10000,
+      "requested": 10000,
+      "achieved_load_fraction": 1.0,
+      "loss_drops": 0,
+      "partition_drops": 0,
+      "max_rss_mib": 2791.40234375,
+      "passed": false,
+      "failures": [
+        "process exit 1",
+        "canonical state, complete history or writer participation failed"
+      ]
+    }
+  ]
+}

@@ -110,8 +110,10 @@ lines = ['# All-writer native stress results', '',
 for entry in manifest:
     memory = f"{entry['max_rss_mib']:.1f}" if entry['max_rss_mib'] is not None else 'unavailable'
     lines.append(f"| {entry['case']} / {entry['seed']} | {entry['generated']} / {entry['requested']} | {entry['achieved_load_fraction']:.1%} | {entry['verified']} | {entry['loss_drops']} / {entry['partition_drops']} | {memory} | {'PASS' if entry['passed'] else 'FAIL'} |")
+lines += ['', '## Failures', '']
+for entry in manifest:
     if entry['failures']:
-        lines.append('\nFailure: ' + '; '.join(entry['failures']) + '\n')
+        lines.append(f"- {entry['case']} / {entry['seed']}: " + '; '.join(entry['failures']))
 lines += ['', 'Loss is seeded application-level outbound frame discard. The partition cuts communication between two halves during editing; both halves continue writing. Accepted packets still travel over real UDP. There is no emulated RTT, process crash or multi-host network in this suite.', '',
           'CPU/RSS sidecars cover the entire child process. Canonical checks happen after writers stop and the settling deadline expires. A pass establishes this workload and deadline, not unbounded history growth, arbitrary WAN behavior or browser room capacity.', '']
 (output / 'report.md').write_text('\n'.join(lines))

@@ -1,0 +1,39 @@
+{
+  "commit": "9eb9038d78a9e2500dcd36a12c473942ff40356d",
+  "source_dirty": false,
+  "browser": "156.0.8078.4",
+  "sessions": 5,
+  "isolation": "five independent Chromium contexts; a sixth context records live viewport screenshots",
+  "transport": "loopback WebRTC, full mesh",
+  "checkpoint_method": "all five actual CodeMirror texts equal the expected contributions",
+  "checkpoints": [
+    {
+      "label": "All five joined the same document",
+      "replicas": 5,
+      "identical": true,
+      "sha256": "03a1cf5ff70d058eb8a98f32d94a459c467155cbe2a1254992912adb0e675fcf",
+      "text": "# Our launch checklist\n\nAlice:\nBob:\nCarol:\nDev:\nEve:"
+    },
+    {
+      "label": "Every writer contributed; all five texts match",
+      "replicas": 5,
+      "identical": true,
+      "sha256": "007ab8f3dc52cb01cda554bab16293cb3ff22d5b90f76f15586d57ee64adbadc",
+      "text": "# Our launch checklist\n\nAlice: Draft the outline.\nBob: Review the wording.\nCarol: Check the examples.\nDev: Test offline edits.\nEve: Publish the notes."
+    },
+    {
+      "label": "Simultaneous typing retained all five contributions",
+      "replicas": 5,
+      "identical": true,
+      "sha256": "48e52879fa87a31adf892a596174e08f9f95ac9c15c503e215d791f52d4ba5c8",
+      "text": "# Our launch checklist\n\nAlice: Draft the outline. Ready!\nBob: Review the wording. Ready!\nCarol: Check the examples. Ready!\nDev: Test offline edits. Ready!\nEve: Publish the notes. Ready!"
+    },
+    {
+      "label": "Offline recovery kept both sides; all five texts match",
+      "replicas": 5,
+      "identical": true,
+      "sha256": "9cfe29faef32652409be883f9b2c50ee8ac165caece55888995bc27812d4d342",
+      "text": "# Our launch checklist\n\nAlice: Draft the outline. Ready! Online.\nBob: Review the wording. Ready!\nCarol: Check the examples. Ready!\nDev: Test offline edits. Ready!\nEve: Publish the notes. Ready! Offline."
+    }
+  ]
+}

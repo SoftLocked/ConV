@@ -1,0 +1,27 @@
+{
+  "user_seconds": 92.09,
+  "system_seconds": 36.74,
+  "max_rss_kib": 2858396,
+  "elapsed_seconds": 43.48,
+  "command": [
+    "/home/hari/CODE/ConV/target/release/conv-bench",
+    "--peers",
+    "200",
+    "--writers",
+    "200",
+    "--edits-per-second",
+    "5",
+    "--seconds",
+    "10",
+    "--settle-seconds",
+    "30",
+    "--seed",
+    "2",
+    "--output",
+    "/home/hari/CODE/ConV/benchmarks/stress-results/20261029T231125Z/deletion-heavy-seed-2.json",
+    "--delete-every",
+    "3"
+  ],
+  "returncode": 1,
+  "scope": "whole process including preparation, settling and report serialization"
+}
