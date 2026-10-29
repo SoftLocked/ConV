@@ -32,23 +32,25 @@ function App() {
   const [length, setLength] = useState(0);
   const container = useRef<HTMLDivElement>(null), view = useRef<EditorView | null>(null), engine = useRef<Engine | null>(null);
   const worker = useRef<Worker | null>(null), mesh = useRef<Mesh | null>(null), serial = useRef(0);
-  const peers = useRef<Person[]>([]), cursorState = useRef(new Map<string, { bytes: number[]; seen: number }>());
+  const peers = useRef<Person[]>([]), cursorState = useRef(new Map<string, { bytes: number[]; seen: number; active: number }>());
   useEffect(() => {
     let stopped = false;
     const host = new Worker(new URL('./worker/core.ts', import.meta.url), { type: 'module' }); worker.current = host;
     const participant = sessionStorage.getItem('conv-name') ?? `Writer ${writer.slice(0, 4)}`;
     sessionStorage.setItem('conv-name', participant);
     const network = new Mesh(room, writer, participant); mesh.current = network;
+    let cursorSignature = '';
     const refreshCursors = () => {
       if (!engine.current || !view.current) return;
       const values = [];
-      for (const [id, cursor] of [...cursorState.current].sort((a, b) => b[1].seen - a[1].seen)) {
+      for (const [id, cursor] of [...cursorState.current].sort((a, b) => b[1].active - a[1].active)) {
         if (Date.now() - cursor.seen > 10_000) { cursorState.current.delete(id); continue; }
         const index = peers.current.findIndex(p => p.id === id);
         if (index < 0) continue;
         if (values.length < 12) try { values.push({ position: engine.current.resolve_anchor(new Uint8Array(cursor.bytes)), name: peers.current[index].name, color: palette[index % palette.length] }); } catch { /* dependency has not arrived yet */ }
       }
-      view.current.dispatch({ effects: cursors.of(values) });
+      const signature = JSON.stringify(values);
+      if (signature !== cursorSignature) { cursorSignature = signature; view.current.dispatch({ effects: cursors.of(values) }); }
     };
     network.onPeople = list => {
       peers.current = list; setPeople(list);
@@ -56,7 +58,12 @@ function App() {
     };
     network.onStatus = setConnection;
     network.onFrame = frame => host.postMessage({ type: 'receive', frame });
-    network.onCursor = (id, bytes) => { cursorState.current.set(id, { bytes, seen: Date.now() }); refreshCursors(); };
+    network.onCursor = (id, bytes) => {
+      const previous = cursorState.current.get(id);
+      const moved = !previous || previous.bytes.join() !== bytes.join();
+      cursorState.current.set(id, { bytes, seen: Date.now(), active: moved ? Date.now() : previous!.active });
+      if (moved) refreshCursors();
+    };
     const paint = (text: string, selection?: { anchor: number; head: number }) => {
       const editor = view.current; if (!editor) return;
       const before = editor.state.doc.toString();
@@ -101,7 +108,8 @@ function App() {
           editor.dom.addEventListener('compositionend', () => setTimeout(() => host.postMessage({ type: 'snapshot' }), 0));
           if (initial !== null) { sessionStorage.removeItem(`conv-import:${room}`); editor.dispatch({ changes: { from: 0, insert: initial } }); }
           network.start().catch(failure => setError(String(failure)));
-        } else if (data.type === 'saved' && data.serial === serial.current) { setSaved('Saved on this device'); setSaveError(''); }
+        } else if (data.type === 'saving' && data.serial === serial.current) setSaved('Saving locally');
+        else if (data.type === 'saved' && data.serial === serial.current) { setSaved('Saved on this device'); setSaveError(''); }
         else if (data.type === 'outbound') for (const frame of data.frames) network.send(frame.to, new Uint8Array(frame.data), frame.control);
         else if (data.type === 'broadcast') for (const frame of data.frames) network.broadcast(new Uint8Array(frame.data));
         else if ((data.type === 'remote' || data.type === 'snapshot') && engine.current) {
@@ -113,7 +121,6 @@ function App() {
           else text = (engine.current.receive(new Uint8Array(data.frame), now()) as Update).text;
           paint(text, anchor && head ? { anchor: engine.current.resolve_anchor(anchor), head: engine.current.resolve_anchor(head) } : undefined);
         }
-        else if (data.type === 'tick-needed') host.postMessage({ type: 'tick' });
         else if (data.type === 'error') { setSaveError(data.message); setSaved('Local save failed'); }
       } catch (failure) { setError(String(failure)); }
     };

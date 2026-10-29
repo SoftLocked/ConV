@@ -17,7 +17,7 @@ for (const count of [12, 50]) test(`${count} browser replicas collaborate throug
     await Promise.all(pages.map(page => page.getByRole('button', { name: 'Connection details' }).click()));
     await expect.poll(async () => Promise.all(pages.map(page => page.locator('.diagnostics').getAttribute('data-participants'))), { timeout: 30_000 }).toEqual(pages.map(() => String(count)));
     await expect.poll(async () => (await Promise.all(pages.map(page => page.locator('.diagnostics').getAttribute('data-direct-links')))).every(value => Number(value) >= 2 && Number(value) <= 8), { timeout: 30_000 }).toBe(true);
-    await Promise.all(editors.map((editor, i) => editor.press('Control+End').then(() => editor.pressSequentially(`<writer-${i}>`, { delay: 10 }))));
+    await Promise.all(editors.map(async (editor, i) => { await editor.press('Control+End'); await pages[i].keyboard.insertText(`<writer-${i}>`); }));
     const markers = Array.from({ length: count }, (_, i) => `<writer-${i}>`);
     await expect.poll(async () => (await Promise.all(editors.map(editor => editor.textContent()))).every(text => markers.every(marker => text!.includes(marker))), { timeout: 45_000 }).toBe(true);
     const departed = count - 1;
