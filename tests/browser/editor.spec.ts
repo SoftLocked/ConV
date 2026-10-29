@@ -7,8 +7,12 @@ test('Unicode editing is saved and restored after reload', async ({ page }, test
   await expect(editor).toBeVisible();
   await editor.fill('Hello 🦀\né Markdown');
   await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Document name' }).fill('Unicode notes');
+  await page.getByRole('textbox', { name: 'Document name' }).press('Tab');
+  await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible();
   await page.reload();
   await expect(editor.locator('.cm-line')).toHaveText(['Hello 🦀', 'é Markdown']);
+  await expect(page.getByRole('textbox', { name: 'Document name' })).toHaveValue('Unicode notes');
   await page.screenshot({ path: testInfo.outputPath('editor.png'), fullPage: true });
 });
 
@@ -138,7 +142,7 @@ test('large paste and a versioned backup restore retain the document', async ({ 
   await page.getByRole('textbox', { name: 'Document editor' }).fill(text);
   await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible({ timeout: 15_000 });
   const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Backup', exact: true }).click();
-  const download = await pending; const path = testInfo.outputPath('document.conv.json'); await download.saveAs(path);
+  const download = await pending; const path = testInfo.outputPath('document.conv'); await download.saveAs(path);
   await source.close();
   const restored = await browser.newContext(); const other = await restored.newPage();
   await other.goto(`http://127.0.0.1:5173/#${room()}`);

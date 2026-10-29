@@ -67,7 +67,7 @@ function App() {
         if (oldEnd < before.length && /[\uDC00-\uDFFF]/.test(before[oldEnd])) { oldEnd++; newEnd++; }
         editor.dispatch({ changes: { from: start, to: oldEnd, insert: text.slice(start, newEnd) }, annotations: remote.of(true), selection });
       }
-      setLength(text.length); refreshCursors();
+      setLength(Array.from(text).length); refreshCursors();
     };
     host.onmessage = async ({ data }) => {
       if (stopped) return;
@@ -89,19 +89,19 @@ function App() {
                 const frames: Frame[] = [];
                 try {
                   for (const change of changes.reverse()) frames.push(...(local.edit(change.from, change.to, change.text) as Update).outbound);
-                  setSaved('Saving locally'); setLength(update.state.doc.length);
+                  setSaved('Saving locally'); setLength(Array.from(update.state.doc.toString()).length);
                   host.postMessage({ type: 'local', frames, serial: ++serial.current });
                 } catch (failure) { setError(`Edit failed: ${String(failure)}`); }
               }
               if (update.selectionSet) { try { network.cursor(Array.from(local.anchor(update.state.selection.main.head))); } catch { /* invalid composition boundary */ } }
             }),
           ] }) });
-          view.current = editor; setLength(editor.state.doc.length);
+          view.current = editor; setLength(Array.from(editor.state.doc.toString()).length);
           editor.dom.addEventListener('compositionend', () => setTimeout(() => host.postMessage({ type: 'snapshot' }), 0));
           if (initial !== null) { sessionStorage.removeItem(`conv-import:${room}`); editor.dispatch({ changes: { from: 0, insert: initial } }); }
           network.start().catch(failure => setError(String(failure)));
         } else if (data.type === 'saved' && data.serial === serial.current) setSaved('Saved on this device');
-        else if (data.type === 'outbound') for (const frame of data.frames) network.send(frame.to, new Uint8Array(frame.data));
+        else if (data.type === 'outbound') for (const frame of data.frames) network.send(frame.to, new Uint8Array(frame.data), frame.control);
         else if (data.type === 'broadcast') for (const frame of data.frames) network.broadcast(new Uint8Array(frame.data));
         else if ((data.type === 'remote' || data.type === 'snapshot') && engine.current) {
           if (view.current?.composing) return;
@@ -126,27 +126,47 @@ function App() {
   async function invite() { try { await navigator.clipboard.writeText(location.href); setNotice('Invite link copied'); } catch { setNotice('Copy the address in your browser to invite someone'); } }
   async function importText(file?: File) {
     if (!file) return;
+    if (file.size > 1024 * 1024) { setError('Plain-text imports are limited to 1 MiB'); return; }
     const next = randomId(); sessionStorage.setItem(`conv-import:${next}`, await file.text()); location.hash = next; location.reload();
   }
   async function restoreBackup(file?: File) {
     if (!file) return;
     try {
-      if (file.size > 64 * 1024 * 1024) throw new Error('Backup exceeds 64 MiB');
-      const value = JSON.parse(await file.text());
-      if (value.version !== 1 || !/^[a-f0-9]{32}$/i.test(value.room) || !Array.isArray(value.backup) || !value.backup.every((n: unknown) => Number.isInteger(n) && Number(n) >= 0 && Number(n) <= 255)) throw new Error('Invalid ConV backup');
+      if (file.size > 64 * 1024 * 1024 + 4_096) throw new Error('Backup exceeds 64 MiB');
+      const contents = new Uint8Array(await file.arrayBuffer());
+      let value: { room: string; name: string }, bytes: Uint8Array;
       await ready;
-      const bytes = new Uint8Array(value.backup);
+      if (new TextDecoder().decode(contents.subarray(0, 12)).startsWith('CONVEXPORT1\n')) {
+        const end = contents.indexOf(10, 12);
+        if (end < 0 || end > 4_096) throw new Error('Invalid backup header');
+        value = JSON.parse(new TextDecoder().decode(contents.subarray(12, end)));
+        bytes = contents.subarray(end + 1);
+      } else if (new TextDecoder().decode(contents.subarray(0, 6)) === 'CVBK01') {
+        value = { room: Engine.backup_room(contents), name: file.name }; bytes = contents;
+      } else {
+        const legacy = JSON.parse(new TextDecoder().decode(contents));
+        if (legacy.version !== 1 || !Array.isArray(legacy.backup) || !legacy.backup.every((n: unknown) => Number.isInteger(n) && Number(n) >= 0 && Number(n) <= 255)) throw new Error('Invalid ConV backup');
+        value = legacy; bytes = new Uint8Array(legacy.backup);
+      }
+      if (!/^[a-f0-9]{32}$/i.test(value.room)) throw new Error('Invalid backup room');
       const check = new Engine(value.room, randomId(), bytes); check.free();
-      await saveBackup({ key: `${value.room}:import-${randomId()}`, room: value.room, name: String(value.name).slice(0, 120), backup: bytes });
+      await saveBackup({ key: `${value.room}:import-${randomId()}`, room: value.room, name: String(value.name).slice(0, 120), nameChangedAt: Date.now(), backup: bytes });
       location.hash = value.room; location.reload();
     } catch (failure) { setError(String(failure)); }
+  }
+  function exportBackup() {
+    if (!engine.current) return;
+    const raw = engine.current.backup();
+    const header = new TextEncoder().encode(`CONVEXPORT1\n${JSON.stringify({ room, name })}\n`);
+    const bytes = new Uint8Array(header.length + raw.length); bytes.set(header); bytes.set(raw, header.length);
+    download(`${name}.conv`, bytes.buffer, 'application/octet-stream');
   }
   return <div className="app">
     <header><a className="wordmark" href="/" aria-label="Create a new ConV document">ConV<span>↗</span></a><span className="tagline">A shared space for your words.</span><button className="invite" onClick={invite}>Invite someone <span>↗</span></button></header>
     <div className="workspace"><aside><div className="eyebrow">YOUR SPACE</div><button className="new" onClick={() => { location.hash = randomId(); location.reload(); }}>+ New document</button><div className="document-item">▤ <span>{name}</span></div><div className="aside-bottom"><span className="dot"/> Local-first. Yours to keep.<p>Saved on your device.<br/>Shared directly with your peers.</p></div></aside>
-    <main><div className="document-toolbar"><div className="breadcrumbs">Workspace <span>/</span> Plain text</div><div className="tools"><label className="file-button">Import<input type="file" accept="text/*,.md" onChange={e => importText(e.target.files?.[0])}/></label><label className="file-button">Restore<input type="file" accept=".conv.json,application/json" onChange={e => restoreBackup(e.target.files?.[0])}/></label><button onClick={() => download(`${name}.txt`, view.current?.state.doc.toString() ?? '')}>Export text</button><button onClick={() => { if (engine.current) download(`${name}.conv.json`, JSON.stringify({ version: 1, room, name, backup: Array.from(engine.current.backup()) }), 'application/json'); }}>Backup</button></div></div>
-    <section className="writing"><div className="document-heading"><span className="eyebrow">MAKE ROOM FOR AN IDEA</span><input aria-label="Document name" className="title" value={name} maxLength={120} onChange={e => setName(e.target.value)} onBlur={() => worker.current?.postMessage({ type: 'name', name })}/><div className="save-status"><span className="dot"/>{saved}</div></div><div className="editor" ref={container}/></section>
-    <footer><span>{length.toLocaleString()} UTF-16 units</span><span>Plain text · Markdown</span><button onClick={() => setDiagnostics(!diagnostics)}>Connection details</button></footer>{diagnostics && <div className="diagnostics"><strong>{connection}</strong><p>{people.filter(p => p.connected).length} direct peer connections. Each device saves its own copy. A room link is an invitation, not a cloud backup.</p><code>Room {room.slice(0, 8)}…</code><p><button onClick={() => { if (offline) mesh.current?.resume(); else mesh.current?.pause(); setOffline(!offline); }}>{offline ? 'Reconnect' : 'Work offline'}</button></p></div>}</main>
+    <main><div className="document-toolbar"><div className="breadcrumbs">Workspace <span>/</span> Plain text</div><div className="tools"><label className="file-button">Import<input type="file" accept="text/*,.md" onChange={e => importText(e.target.files?.[0])}/></label><label className="file-button">Restore<input type="file" accept=".conv,.conv.json,application/octet-stream,application/json" onChange={e => restoreBackup(e.target.files?.[0])}/></label><button onClick={() => download(`${name}.txt`, view.current?.state.doc.toString() ?? '')}>Export text</button><button onClick={exportBackup}>Backup</button></div></div>
+    <section className="writing"><div className="document-heading"><span className="eyebrow">MAKE ROOM FOR AN IDEA</span><input aria-label="Document name" className="title" value={name} maxLength={120} onChange={e => setName(e.target.value)} onBlur={() => { setSaved('Saving locally'); worker.current?.postMessage({ type: 'name', name, serial: ++serial.current }); }}/><div className="save-status"><span className="dot"/>{saved}</div></div><div className="editor" ref={container}/></section>
+    <footer><span>{length.toLocaleString()} characters</span><span>Plain text · Markdown</span><button onClick={() => setDiagnostics(!diagnostics)}>Connection details</button></footer>{diagnostics && <div className="diagnostics"><strong>{connection}</strong><p>{people.filter(p => p.connected).length} direct peer connections. Each device saves its own copy. A room link is an invitation, not a cloud backup.</p><code>Room {room.slice(0, 8)}…</code><p><button onClick={() => { if (offline) mesh.current?.resume(); else mesh.current?.pause(); setOffline(!offline); }}>{offline ? 'Reconnect' : 'Work offline'}</button></p></div>}</main>
     <nav className="participants" aria-label="Participants"><div className="eyebrow">IN THIS DOCUMENT</div><div className="person"><span className="avatar">Y</span><div>You<span>Writing locally</span></div><span className="dot"/></div>{people.map((person, i) => <div className="person" key={person.id}><span className="avatar" style={{ background: palette[i % palette.length], color: '#fff' }}>{person.name.slice(0, 1)}</span><div>{person.name}<span>{person.connected ? (person.relay ? 'Connected via relay' : 'Connected') : 'Connecting'}</span></div></div>)}<div className="invite-note"><h3>Better, together.</h3><p>Share a link to bring someone into the same document.</p><button onClick={invite}>Copy invite link ↗</button></div><p className="connection">{navigator.onLine ? connection : 'Offline'}</p></nav></div>
     {notice && <div className="toast" role="status" onClick={() => setNotice('')}>{notice}</div>}{error && <div className="error" role="alert">{error}</div>}
   </div>;

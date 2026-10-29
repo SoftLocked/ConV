@@ -1,1 +1,13 @@
-{"name":"conv","private":true,"packageManager":"pnpm@10.28.2","scripts":{"dev":"pnpm --dir web dev","build":"pnpm --dir web build","test:browser":"pnpm --dir web test:browser"},"devDependencies":{"@playwright/test":"^1.64.1"}}
+{
+  "name": "conv",
+  "private": true,
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "build": "pnpm --dir web build",
+    "test:browser": "pnpm --dir web test:browser"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}

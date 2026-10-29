@@ -1,4 +1,4 @@
-export type Saved = { key: string; room: string; backup: Uint8Array; name: string };
+export type Saved = { key: string; room: string; backup: Uint8Array; name: string; nameChangedAt?: number };
 let opening: Promise<IDBDatabase> | undefined;
 function open() {
   return opening ??= new Promise<IDBDatabase>((resolve, reject) => {

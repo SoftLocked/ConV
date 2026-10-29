@@ -1,5 +1,5 @@
 export type Person = { id: string; name: string; connected: boolean; relay?: boolean };
-type Entry = { pc: RTCPeerConnection; channel?: RTCDataChannel; presence?: RTCDataChannel; early: RTCIceCandidateInit[]; queue: Uint8Array[]; queued: number; lastCursor?: number; lastSeen?: number };
+type Entry = { pc: RTCPeerConnection; channel?: RTCDataChannel; control?: RTCDataChannel; controlQueue: Uint8Array[]; controlQueued: number; presence?: RTCDataChannel; early: RTCIceCandidateInit[]; queue: Uint8Array[]; queued: number; lastCursor?: number; lastSeen?: number };
 export class Mesh {
   private socket?: WebSocket;
   private peers = new Map<string, Entry>();
@@ -12,34 +12,44 @@ export class Mesh {
   onCursor: (id: string, cursor: number[]) => void = () => {};
   onStatus: (status: string) => void = () => {};
   constructor(private room: string, private id: string, private name: string) {}
-  async start() {
+  async start() { await this.refreshConnectivity(); this.signal(); }
+  private async refreshConnectivity() {
     const iceUrl = import.meta.env.VITE_ICE_URL ?? '/ice';
     if (iceUrl) {
       try {
-        const response = await fetch(iceUrl);
+        const response = await fetch(iceUrl, { signal: AbortSignal.timeout(5_000) });
         if (!response.ok) throw new Error('Unable to obtain connectivity credentials');
         this.configuration.iceServers = (await response.json()).iceServers;
       } catch {
-        this.configuration.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+        this.configuration.iceServers ??= [{ urls: 'stun:stun.l.google.com:19302' }];
         this.onStatus(navigator.onLine ? 'Connectivity service unavailable' : 'Offline');
       }
     } else this.configuration.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
     if (new URLSearchParams(location.search).has('relay')) this.configuration.iceTransportPolicy = 'relay';
-    this.signal();
   }
   private signal() {
-    if (this.stopped) return;
+    if (this.stopped || (this.socket && this.socket.readyState < WebSocket.CLOSING)) return;
     this.onStatus('Connecting');
     const url = new URL(import.meta.env.VITE_SIGNAL_URL ?? '/signal', location.href);
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     url.search = new URLSearchParams({ room: this.room, session: this.id, name: this.name }).toString();
-    this.socket = new WebSocket(url);
-    this.socket.onopen = () => this.onStatus('Online');
+    const socket = new WebSocket(url);
+    this.socket = socket;
+    this.socket.onopen = () => {
+      if (this.socket !== socket) { socket.close(); return; }
+      this.onStatus('Online');
+      for (const [id, entry] of this.peers) {
+        if (entry.pc.signalingState === 'have-local-offer') this.sendSignal(id, { description: entry.pc.localDescription });
+        else if (this.id < id && ['failed', 'disconnected'].includes(entry.pc.connectionState)) entry.pc.restartIce();
+      }
+    };
     this.socket.onclose = () => {
+      if (this.socket !== socket) return;
       this.onStatus('Signaling unavailable');
       if (!this.stopped) this.retry = setTimeout(() => this.signal(), 1_500);
     };
     this.socket.onmessage = async ({ data }) => {
+      if (this.socket !== socket || this.stopped) return;
       try {
         const message = JSON.parse(String(data));
         if (message.type === 'welcome') for (const person of message.peers) await this.add(person);
@@ -81,11 +91,14 @@ export class Mesh {
     if (this.peers.size >= 7) return;
     this.people.set(person.id, { ...person, connected: false });
     const pc = new RTCPeerConnection(this.configuration);
-    const entry: Entry = { pc, early: [], queue: [], queued: 0 };
+    const entry: Entry = { pc, early: [], queue: [], queued: 0, controlQueue: [], controlQueued: 0 };
     this.peers.set(person.id, entry);
     pc.onicecandidate = ({ candidate }) => { if (candidate) this.sendSignal(person.id, { candidate: candidate.toJSON() }); };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' && this.id < person.id) pc.restartIce();
+      if (this.peers.get(person.id) !== entry) return;
+      if (pc.connectionState === 'failed' && this.id < person.id) this.refreshConnectivity().then(() => {
+        if (pc.connectionState !== 'closed') { pc.setConfiguration(this.configuration); pc.restartIce(); }
+      }).catch(() => this.onStatus('Connection repair failed'));
       const saved = this.people.get(person.id);
       if (saved) saved.connected = entry.channel?.readyState === 'open';
       this.notify();
@@ -100,10 +113,19 @@ export class Mesh {
     };
     const attach = (channel: RTCDataChannel) => {
       channel.binaryType = 'arraybuffer';
+      if (!['document', 'presence', 'control'].includes(channel.label)) { channel.close(); return; }
+      if (channel.label === 'control') {
+        entry.control = channel; channel.bufferedAmountLowThreshold = 16 * 1024;
+        channel.onopen = () => this.flush(entry);
+        channel.onbufferedamountlow = () => this.flush(entry);
+        channel.onmessage = ({ data }) => { if (data instanceof ArrayBuffer && data.byteLength <= 1_200) this.onFrame(new Uint8Array(data)); };
+        return;
+      }
       if (channel.label === 'presence') {
         entry.presence = channel;
         channel.onmessage = ({ data }) => {
           try {
+            if (String(data).length > 4_096) return;
             const cursor = JSON.parse(String(data)).cursor;
             if (Array.isArray(cursor) && cursor.length <= 128 && cursor.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) this.onCursor(person.id, cursor);
           } catch { /* ephemeral malformed presence is discarded */ }
@@ -113,14 +135,15 @@ export class Mesh {
       entry.channel = channel;
       channel.bufferedAmountLowThreshold = 64 * 1024;
       channel.onbufferedamountlow = () => this.flush(entry);
-      channel.onopen = () => { const personState = this.people.get(person.id); if (personState) personState.connected = true; this.flush(entry); this.notify(); };
-      channel.onclose = () => { const personState = this.people.get(person.id); if (personState) personState.connected = false; this.notify(); };
+      channel.onopen = () => { if (this.peers.get(person.id) !== entry) return; const personState = this.people.get(person.id); if (personState) personState.connected = true; this.flush(entry); this.notify(); };
+      channel.onclose = () => { if (this.peers.get(person.id) !== entry) return; const personState = this.people.get(person.id); if (personState) personState.connected = false; this.notify(); };
       channel.onmessage = ({ data }) => { if (data instanceof ArrayBuffer && data.byteLength <= 1_200) this.onFrame(new Uint8Array(data)); };
     };
     pc.ondatachannel = ({ channel }) => attach(channel);
     if (this.id < person.id) {
       attach(pc.createDataChannel('document', { ordered: true }));
       attach(pc.createDataChannel('presence', { ordered: false, maxRetransmits: 0 }));
+      attach(pc.createDataChannel('control', { ordered: false, maxRetransmits: 0 }));
       pc.onnegotiationneeded = async () => {
         try {
           await pc.setLocalDescription(await pc.createOffer());
@@ -131,14 +154,22 @@ export class Mesh {
     this.notify();
   }
   private flush(entry: Entry) {
+    while (entry.control?.readyState === 'open' && entry.controlQueue.length && entry.control.bufferedAmount < 32 * 1024) {
+      const bytes = entry.controlQueue.shift()!; entry.controlQueued -= bytes.byteLength;
+      entry.control.send(bytes.buffer as ArrayBuffer);
+    }
     while (entry.channel?.readyState === 'open' && entry.queue.length && entry.channel.bufferedAmount < 128 * 1024) {
       const bytes = entry.queue.shift()!;
       entry.queued -= bytes.byteLength;
       entry.channel.send(bytes.buffer as ArrayBuffer);
     }
   }
-  send(to: string, bytes: Uint8Array) {
+  send(to: string, bytes: Uint8Array, control = false) {
     const entry = this.peers.get(to);
+    if (entry && control) {
+      if (entry.controlQueued + bytes.byteLength > 64 * 1024) return;
+      entry.controlQueue.push(bytes); entry.controlQueued += bytes.byteLength; this.flush(entry); return;
+    }
     if (!entry || entry.queued + bytes.byteLength > 8 * 1024 * 1024) return;
     entry.queue.push(bytes); entry.queued += bytes.byteLength; this.flush(entry);
   }
@@ -147,10 +178,10 @@ export class Mesh {
     for (const entry of this.peers.values()) if (entry.presence?.readyState === 'open') entry.presence.send(JSON.stringify({ cursor: position }));
   }
   pause() {
-    this.stopped = true; clearTimeout(this.retry); this.socket?.close();
+    this.stopped = true; clearTimeout(this.retry); this.socket?.close(); this.socket = undefined;
     for (const entry of this.peers.values()) entry.pc.close();
     this.peers.clear(); this.people.clear(); this.notify(); this.onStatus('Offline');
   }
-  resume() { this.stopped = false; this.signal(); }
+  resume() { this.stopped = false; this.start().catch(() => this.onStatus('Connection repair failed')); }
   close() { this.stopped = true; clearTimeout(this.retry); this.socket?.close(); for (const entry of this.peers.values()) entry.pc.close(); }
 }
