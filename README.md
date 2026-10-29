@@ -4,7 +4,7 @@ A proposed local-first, peer-to-peer collaborative plain-text editor with a
 custom Rust replication engine shared by native peers and browser WebAssembly.
 
 Implementation has started at milestone 1. The repository currently contains a
-sequence CRDT draft specification, a reference model with local editing, and a
+sequence CRDT draft specification, a reference model with local editing, an exact mutation receipt summary, and a
 deterministic document-delivery harness.
 There is no browser editor, networking, persistence, or benchmark result yet.
 
@@ -38,8 +38,9 @@ cargo run -p conv-simulator --example partition
 ```
 
 The harness uses in-memory document fragments and explicit full-state repair.
-Encoded messages, causal range repair, periodic timers, SWIM, and real sockets
-are not implemented. Virtual delivery times are scenario inputs, not performance
+The summary can identify missing numbered mutations, but it is not yet wired
+to retained mutation history or automatic repair. Encoded messages, periodic
+timers, SWIM, and real sockets are not implemented. Virtual delivery times are scenario inputs, not performance
 results. The reference renderer prioritizes clarity and has quadratic traversal.
 
 Next: validate insertion dependencies, introduce versioned mutation envelopes and
