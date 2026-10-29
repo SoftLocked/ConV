@@ -41,6 +41,14 @@ struct Args {
     settle_seconds: u64,
     #[arg(long, default_value_t = 1024)]
     document_bytes: usize,
+    /// Deterministically discard this fraction of outbound frames (0..1,000,000).
+    #[arg(long, default_value_t = 0)]
+    drop_per_million: u64,
+    /// Start a two-group network partition this many seconds into active editing.
+    #[arg(long, default_value_t = 2)]
+    partition_start_seconds: u64,
+    #[arg(long, default_value_t = 0)]
+    partition_seconds: u64,
     #[arg(long, default_value = "benchmarks/raw-results/latest.json")]
     output: std::path::PathBuf,
 }
@@ -53,6 +61,10 @@ struct ResultRow {
     received_frames: u64,
     load_sent: u64,
     load_received: u64,
+    local_edits: u64,
+    attempted_frames: u64,
+    loss_dropped_frames: u64,
+    partition_dropped_frames: u64,
     merges: Vec<u64>,
 }
 
@@ -68,6 +80,17 @@ async fn main() -> Result<()> {
     anyhow::ensure!(
         !args.full_state || args.peers == 2,
         "the full-state baseline currently supports exactly two peers so forwarding topology remains identical"
+    );
+    anyhow::ensure!(args.drop_per_million <= 1_000_000);
+    anyhow::ensure!(
+        args.partition_seconds == 0
+            || (args.peers >= 2
+                && args.partition_start_seconds < args.seconds
+                && args
+                    .partition_start_seconds
+                    .checked_add(args.partition_seconds)
+                    .is_some_and(|end| end <= args.seconds)),
+        "the partition must fit within the active editing window"
     );
     let writers = args.writers.min(args.peers);
     let room = uuid::Uuid::new_v4().as_u128();
@@ -103,6 +126,11 @@ async fn main() -> Result<()> {
         let preload = !args.network_bootstrap || index == 0;
         let warmup = Duration::from_secs(args.warmup_seconds);
         let mut random = args.seed.wrapping_add(index as u64);
+        let drop_per_million = args.drop_per_million;
+        let partition_start = Duration::from_secs(args.partition_start_seconds);
+        let partition_end = partition_start + Duration::from_secs(args.partition_seconds);
+        let partition_enabled = args.partition_seconds > 0;
+        let group_boundary = args.peers / 2;
         let edit_period = Duration::from_micros(1_000_000 / args.edits_per_second);
         tasks.push(tokio::spawn(async move {
             let id = index as u128 + 1;
@@ -118,6 +146,7 @@ async fn main() -> Result<()> {
             let mut local_edits = 0_u64;
             let mut last_insert = None;
             let mut sequence = 0_u64; let mut sent = 0; let mut received = 0; let mut sent_frames = 0; let mut received_frames = 0; let mut merges = Vec::new();
+            let mut attempted_frames = 0_u64; let mut loss_dropped_frames = 0_u64; let mut partition_dropped_frames = 0_u64;
             ready.wait().await; gate.wait().await;
             let start = *clock.get().unwrap();
             let mut sync = tokio::time::interval(Duration::from_secs(1));
@@ -177,6 +206,22 @@ async fn main() -> Result<()> {
                         sequence += 1;
                         let frames = encode(room, id, sequence, &message).map_err(|e| anyhow!("encode: {e:?}"))?;
                         for frame in frames {
+                            let elapsed = start.elapsed();
+                            let measured = elapsed >= warmup;
+                            if measured { attempted_frames += 1; }
+                            let active = elapsed.saturating_sub(warmup);
+                            if partition_enabled && measured && active >= partition_start && active < partition_end
+                                && (index < group_boundary) != ((to as usize - 1) < group_boundary) {
+                                if measured { partition_dropped_frames += 1; }
+                                continue;
+                            }
+                            if drop_per_million > 0 {
+                                random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+                                if random % 1_000_000 < drop_per_million {
+                                    if measured { loss_dropped_frames += 1; }
+                                    continue;
+                                }
+                            }
                             let bytes = socket.send_to(&frame, addresses[&to]).await? as u64;
                             if start.elapsed() >= warmup { sent += bytes; sent_frames += 1;
                                 if start.elapsed() < warmup + edit_duration { load_sent += bytes; }
@@ -185,7 +230,7 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            Ok::<_, anyhow::Error>(ResultRow { peer, sent, received, sent_frames, received_frames, load_sent, load_received, merges })
+            Ok::<_, anyhow::Error>(ResultRow { peer, sent, received, sent_frames, received_frames, load_sent, load_received, local_edits, attempted_frames, loss_dropped_frames, partition_dropped_frames, merges })
         }));
     }
     ready.wait().await;
@@ -207,6 +252,14 @@ async fn main() -> Result<()> {
         pair[0].peer.replica().document() == pair[1].peer.replica().document()
             && pair[0].peer.replica().summary() == pair[1].peer.replica().summary()
     });
+    let generated_mutations: u64 = rows.iter().map(|row| row.local_edits).sum();
+    let requested_mutations = writers as u64 * args.edits_per_second * args.seconds;
+    let expected_mutations = initial_mutations as u64 + generated_mutations;
+    let complete_history = rows
+        .iter()
+        .all(|row| row.peer.replica().history_len() as u64 == expected_mutations);
+    let all_writers_participated =
+        args.seconds == 0 || rows[..writers].iter().all(|row| row.local_edits > 0);
     let mut merges: Vec<_> = rows
         .iter_mut()
         .flat_map(|row| std::mem::take(&mut row.merges))
@@ -233,11 +286,15 @@ async fn main() -> Result<()> {
         "transport_overhead":"28 bytes per IPv4/UDP datagram, reported separately from application bytes",
         "transport":"UDP loopback", "execution":"Tokio tasks in one process", "peers":args.peers,
         "writers":writers,"delete_every":args.delete_every,"edits_per_second_per_writer":args.edits_per_second,"merge_sample_unit":"decoded mutation or batch message","edit_seconds":args.seconds,"settle_seconds":args.settle_seconds,
-        "document_bytes":args.document_bytes,"initialization_seconds":initialization_seconds,"load_executed":writers == 0 || args.seconds == 0 || rows.iter().any(|row| row.peer.replica().history_len() > initial_mutations),"elapsed_seconds":elapsed,"converged":converged,
+        "requested_live_mutations":requested_mutations,"generated_live_mutations":generated_mutations,"expected_mutations_per_replica":expected_mutations,
+        "achieved_mutations_per_second":generated_mutations as f64 / args.seconds.max(1) as f64,
+        "all_writers_participated":all_writers_participated,"complete_history":complete_history,"verified":converged && complete_history && all_writers_participated,
+        "faults":{"drop_per_million":args.drop_per_million,"partition_start_seconds":args.partition_start_seconds,"partition_seconds":args.partition_seconds,"partition_groups":"first floor(peers/2) ids versus remaining ids; outbound cross-group frames blocked","injection":"seeded application-level frame discard before real UDP send; no emulated RTT","counts_scope":"active edit and settling windows, excluding warmup"},
+        "document_bytes":args.document_bytes,"initialization_seconds":initialization_seconds,"load_executed":all_writers_participated,"elapsed_seconds":elapsed,"converged":converged,
         "bootstrap":if args.network_bootstrap {"initial history only on peer 1; bootstrap bytes included after the configured warmup"} else {"identical initial state preloaded before network measurement"}, "measurement":"sent and received application frame bytes including headers, control and repair; excludes IP/UDP headers",
-        "per_node": rows.iter().map(|row| serde_json::json!({"sent":row.sent,"received":row.received,"sent_frames":row.sent_frames,"received_frames":row.received_frames,"ipv4_udp_overhead":28 * (row.sent_frames + row.received_frames),"visible_bytes":row.peer.replica().document().text().len(),"tombstones":row.peer.replica().document().deleted_ids().count(),"serialized_history_bytes":row.peer.replica().backup(room).map(|bytes| bytes.len()).unwrap_or(0),"bytes_per_second":(row.sent+row.received) as f64/elapsed,"active_window_bytes_per_second":(row.load_sent+row.load_received) as f64 / args.seconds.max(1) as f64,"active_window_sent":row.load_sent,"active_window_received":row.load_received,"mutations":row.peer.replica().history_len()})).collect::<Vec<_>>(),
+        "per_node": rows.iter().map(|row| serde_json::json!({"sent":row.sent,"received":row.received,"sent_frames":row.sent_frames,"received_frames":row.received_frames,"local_mutations":row.local_edits,"attempted_frames":row.attempted_frames,"loss_dropped_frames":row.loss_dropped_frames,"partition_dropped_frames":row.partition_dropped_frames,"ipv4_udp_overhead":28 * (row.sent_frames + row.received_frames),"visible_bytes":row.peer.replica().document().text().len(),"tombstones":row.peer.replica().document().deleted_ids().count(),"serialized_history_bytes":row.peer.replica().backup(room).map(|bytes| bytes.len()).unwrap_or(0),"bytes_per_second":(row.sent+row.received) as f64/elapsed,"active_window_bytes_per_second":(row.load_sent+row.load_received) as f64 / args.seconds.max(1) as f64,"active_window_sent":row.load_sent,"active_window_received":row.load_received,"mutations":row.peer.replica().history_len()})).collect::<Vec<_>>(),
         "protocol_mutation_merge_ns":{"samples":merges.len(),"p50":percentile(50),"p95":percentile(95),"p99":percentile(99)},
-        "limitations":["single-host loopback", "merge includes protocol history bookkeeping", "CPU-time profiling pending", "not a browser or WAN result"]
+        "limitations":["single-host loopback", "merge includes protocol history bookkeeping", "CPU time requires the runner resource sidecar", "not a browser or WAN result"]
     });
     if let Some(parent) = args.output.parent() {
         std::fs::create_dir_all(parent)?;
@@ -249,16 +306,16 @@ async fn main() -> Result<()> {
         args.output.display()
     );
     anyhow::ensure!(
-        writers == 0
-            || args.seconds == 0
-            || rows
-                .iter()
-                .any(|row| row.peer.replica().history_len() > initial_mutations),
-        "workload did not execute"
+        all_writers_participated,
+        "not every configured writer executed its workload"
     );
     anyhow::ensure!(
         converged,
         "replicas did not converge before the experiment deadline"
+    );
+    anyhow::ensure!(
+        complete_history,
+        "replicas do not retain every generated mutation"
     );
     Ok(())
 }
