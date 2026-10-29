@@ -11,6 +11,9 @@ pub enum Message {
     Summary(CausalSummary),
     Request(Vec<SyncRequest>),
     Mutation(Mutation),
+    SnapshotOffer { mutations: usize, bytes: usize },
+    SnapshotRequest,
+    Snapshot(Vec<Mutation>),
 }
 
 #[derive(Clone, Debug)]
@@ -36,12 +39,13 @@ impl Default for SyncConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SyncPeer {
     replica: Replica,
     neighbors: Vec<u128>,
     config: SyncConfig,
     swim: Swim,
+    gossip_cursor: usize,
 }
 
 impl SyncPeer {
@@ -60,6 +64,7 @@ impl SyncPeer {
             neighbors,
             config,
             swim,
+            gossip_cursor: 0,
         }
     }
     pub fn merge_backup(
@@ -104,10 +109,30 @@ impl SyncPeer {
     }
 
     /// Call once to start, then once for each requested sync timer firing.
-    pub fn on_sync_timer(&self) -> Vec<Effect> {
+    pub fn on_sync_timer(&mut self) -> Vec<Effect> {
         let mut effects = self.broadcast(Message::Summary(self.replica.summary().clone()));
-        for member in self.swim.members().values() {
-            effects.extend(self.broadcast(Message::Swim(SwimMessage::Update(*member))));
+        let observations: Vec<_> = self.swim.members().values().copied().collect();
+        if !self.neighbors.is_empty() && !observations.is_empty() {
+            for member in observations
+                .iter()
+                .cycle()
+                .skip(self.gossip_cursor % observations.len())
+                .take(3.min(observations.len()))
+            {
+                for &to in self
+                    .neighbors
+                    .iter()
+                    .cycle()
+                    .skip(self.gossip_cursor % self.neighbors.len())
+                    .take(3.min(self.neighbors.len()))
+                {
+                    effects.push(Effect::Send {
+                        to,
+                        message: Message::Swim(SwimMessage::Update(*member)),
+                    });
+                }
+            }
+            self.gossip_cursor = self.gossip_cursor.wrapping_add(3);
         }
         effects.push(Effect::ScheduleSync {
             after_ms: self.config.interval_ms,
@@ -146,6 +171,11 @@ impl SyncPeer {
         })
     }
 
+    fn snapshot_message(&self) -> Option<(Message, usize)> {
+        let message = Message::Snapshot(self.replica.snapshot());
+        let size = postcard::to_allocvec(&message).ok()?.len();
+        (size < crate::wire::MESSAGE_LIMIT - 16).then_some((message, size))
+    }
     pub fn receive(
         &mut self,
         from: u128,
@@ -169,10 +199,52 @@ impl SyncPeer {
                     message: Message::Swim(send.message),
                 })
                 .collect()),
-            Message::Hello => Ok(vec![Effect::Send {
-                to: from,
-                message: Message::Summary(self.replica.summary().clone()),
-            }]),
+            Message::Hello => {
+                let mut replies = vec![Effect::Send {
+                    to: from,
+                    message: Message::Summary(self.replica.summary().clone()),
+                }];
+                if self.replica.history_len() > self.config.max_reply_items
+                    && let Some((_, bytes)) = self.snapshot_message()
+                {
+                    replies.push(Effect::Send {
+                        to: from,
+                        message: Message::SnapshotOffer {
+                            mutations: self.replica.history_len(),
+                            bytes,
+                        },
+                    });
+                }
+                Ok(replies)
+            }
+            Message::SnapshotOffer { mutations, bytes } => {
+                if mutations
+                    > self
+                        .replica
+                        .history_len()
+                        .saturating_add(self.config.max_reply_items)
+                    && bytes <= crate::wire::MESSAGE_LIMIT
+                    && mutations <= 100_000
+                {
+                    Ok(vec![Effect::Send {
+                        to: from,
+                        message: Message::SnapshotRequest,
+                    }])
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            Message::SnapshotRequest => Ok(self
+                .snapshot_message()
+                .map(|(message, _)| vec![Effect::Send { to: from, message }])
+                .unwrap_or_default()),
+            Message::Snapshot(mutations) => {
+                if mutations.len() > 100_000 {
+                    return Err(ReplicationError::InvalidMutationFragment);
+                }
+                self.replica.merge_snapshot(&mutations)?;
+                Ok(Vec::new())
+            }
             Message::Summary(remote) => {
                 let requests = self
                     .replica

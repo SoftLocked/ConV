@@ -88,6 +88,17 @@ impl Replica {
     pub fn summary(&self) -> &CausalSummary {
         &self.summary
     }
+    pub fn snapshot(&self) -> Vec<Mutation> {
+        self.history.values().cloned().collect()
+    }
+    pub fn merge_snapshot(&mut self, mutations: &[Mutation]) -> Result<(), ReplicationError> {
+        let mut candidate = self.clone();
+        for mutation in mutations {
+            candidate.receive(mutation)?;
+        }
+        *self = candidate;
+        Ok(())
+    }
     pub(crate) fn history_values(&self) -> impl Iterator<Item = &Mutation> {
         self.history.values()
     }
@@ -149,11 +160,23 @@ impl Replica {
         let deleted: Vec<_> = elements[first..last].iter().map(|&(id, _)| id).collect();
         let mut candidate = self.clone();
         let mut mutations = Vec::new();
-        if let Some(mutation) = candidate.delete(&deleted)? {
-            mutations.push(mutation);
+        for chunk in deleted.chunks(4_096) {
+            if let Some(mutation) = candidate.delete(chunk)? {
+                mutations.push(mutation);
+            }
         }
-        if let Some(mutation) = candidate.insert(anchor, text)? {
-            mutations.push(mutation);
+        let chars: Vec<_> = text.chars().collect();
+        let mut predecessor = anchor;
+        for chunk in chars.chunks(4_096) {
+            let text: String = chunk.iter().collect();
+            if let Some(mutation) = candidate.insert(predecessor, &text)? {
+                predecessor = mutation
+                    .fragment
+                    .insertions()
+                    .last()
+                    .map(|record| record.id);
+                mutations.push(mutation);
+            }
         }
         *self = candidate;
         Ok(mutations)

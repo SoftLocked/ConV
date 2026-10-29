@@ -67,3 +67,20 @@ permutations, batching, duplicate fragments, conflicting IDs, and future edits
 following convergence. Keep regression seeds. Then add a separate indexed
 implementation for differential checks, versioned serialization, contiguous
 mutation summaries with holes, and a deterministic two-peer protocol harness.
+
+## Implementation status
+
+`Document` now indexes children waiting for missing predecessors. Incoming
+records are validated against both existing and incoming state; only previously
+unresolved edges affected by those records need rechecking. No state changes
+until every new/resolved edge validates. The derived pending index is rebuilt on
+decode and participates in state equality checks.
+
+`reference::ReferenceDocument` retains full-union validation and repeated scans
+for independent differential checks. One hundred seeded histories compare both
+models after reordered and duplicate deliveries, including metadata and visible
+text. This supplements exhaustive small-state merge-law tests.
+
+Editor replacements use UTF-16 boundaries and split large inserts/deletes into
+complete mutations of at most 4,096 scalar elements/targets. Snapshot bootstrap
+stages all received mutations and joins them atomically with current local state.

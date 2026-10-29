@@ -1,5 +1,7 @@
-//! Clarity-first sequence reference model. See docs/crdt-spec.md.
+//! Indexed sequence CRDT with an independent reference model. See docs/crdt-spec.md.
 //! No transport, clocks, randomness, persistence, or browser dependencies.
+
+pub mod reference;
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -26,6 +28,7 @@ pub struct Insertion {
 pub struct Document {
     insertions: BTreeMap<ElementId, Insertion>,
     deletions: BTreeSet<ElementId>,
+    pending: BTreeMap<ElementId, BTreeSet<ElementId>>,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -61,25 +64,26 @@ pub enum DocumentError {
     InvalidPredecessorOrder(ElementId),
 }
 
+fn validate_order(record: &Insertion, parent: Option<&Insertion>) -> Result<(), DocumentError> {
+    if record.anchor == Some(record.id) {
+        return Err(DocumentError::SelfAnchor(record.id));
+    }
+    let Some(parent) = parent else {
+        return Ok(());
+    };
+    let earlier_transaction = parent.logical_time < record.logical_time;
+    let earlier_offset = parent.logical_time == record.logical_time
+        && parent.id.replica == record.id.replica
+        && parent.id.sequence == record.id.sequence
+        && parent.id.offset < record.id.offset;
+    if !earlier_transaction && !earlier_offset {
+        return Err(DocumentError::InvalidPredecessorOrder(record.id));
+    }
+    Ok(())
+}
 fn validate(records: &BTreeMap<ElementId, Insertion>) -> Result<(), DocumentError> {
     for record in records.values() {
-        let Some(anchor) = record.anchor else {
-            continue;
-        };
-        if anchor == record.id {
-            return Err(DocumentError::SelfAnchor(record.id));
-        }
-        let Some(parent) = records.get(&anchor) else {
-            continue;
-        };
-        let earlier_transaction = parent.logical_time < record.logical_time;
-        let earlier_offset = parent.logical_time == record.logical_time
-            && parent.id.replica == record.id.replica
-            && parent.id.sequence == record.id.sequence
-            && parent.id.offset < record.id.offset;
-        if !earlier_transaction && !earlier_offset {
-            return Err(DocumentError::InvalidPredecessorOrder(record.id));
-        }
+        validate_order(record, record.anchor.and_then(|id| records.get(&id)))?;
     }
     Ok(())
 }
@@ -109,6 +113,13 @@ impl Document {
         }
         state.deletions.extend(deletions);
         validate(&state.insertions)?;
+        for record in state.insertions.values() {
+            if let Some(anchor) = record.anchor
+                && !state.insertions.contains_key(&anchor)
+            {
+                state.pending.entry(anchor).or_default().insert(record.id);
+            }
+        }
         Ok(state)
     }
 
@@ -121,10 +132,32 @@ impl Document {
                 return Err(DocumentError::ConflictingInsertion(*id));
             }
         }
-        let mut combined = self.insertions.clone();
-        combined.extend(other.insertions.clone());
-        validate(&combined)?;
-        self.insertions = combined;
+        // Only new edges and previously missing predecessors need validation.
+        for record in other.insertions.values() {
+            let parent = record.anchor.and_then(|id| {
+                self.insertions
+                    .get(&id)
+                    .or_else(|| other.insertions.get(&id))
+            });
+            validate_order(record, parent)?;
+            if let Some(children) = self.pending.get(&record.id) {
+                for child in children {
+                    validate_order(&self.insertions[child], Some(record))?;
+                }
+            }
+        }
+        for record in other.insertions.values() {
+            self.pending.remove(&record.id);
+            if let Some(anchor) = record.anchor
+                && !self.insertions.contains_key(&anchor)
+                && !other.insertions.contains_key(&anchor)
+            {
+                self.pending.entry(anchor).or_default().insert(record.id);
+            }
+        }
+        for (id, record) in &other.insertions {
+            self.insertions.entry(*id).or_insert_with(|| record.clone());
+        }
         self.deletions.extend(&other.deletions);
         Ok(())
     }

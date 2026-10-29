@@ -25,6 +25,9 @@ impl Replica {
             mutations: self.history_values().cloned().collect(),
         })
         .map_err(|_| BackupError::Invalid)?;
+        if payload.len() > 64 * 1024 * 1024 - 10 {
+            return Err(BackupError::Invalid);
+        }
         let mut bytes = b"CVBK01".to_vec();
         bytes.extend_from_slice(&crc32fast::hash(&payload).to_le_bytes());
         bytes.extend_from_slice(&payload);

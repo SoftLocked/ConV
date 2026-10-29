@@ -12,3 +12,17 @@ fn utf16_replacements_preserve_unicode_and_reject_split_surrogates() {
     replica.edit_utf16(0, 1, "hello\n").unwrap();
     assert_eq!(replica.document().text(), "hello\n👩‍💻e\u{301}\n");
 }
+
+#[test]
+fn large_paste_is_split_into_complete_repairable_mutations() {
+    let mut replica = Replica::new(1);
+    let text = "🦀".repeat(8_200);
+    let mutations = replica.edit_utf16(0, 0, &text).unwrap();
+    assert_eq!(mutations.len(), 3);
+    let mut remote = Replica::new(2);
+    for mutation in mutations.iter().rev() {
+        remote.receive(mutation).unwrap();
+    }
+    assert_eq!(replica.document(), remote.document());
+    assert_eq!(remote.document().text(), text);
+}

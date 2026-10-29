@@ -41,3 +41,46 @@ fn reply_budget_is_shared_across_all_requested_ranges() {
         assert_eq!(mutation.sequence, i as u64 + 1);
     }
 }
+
+#[test]
+fn snapshot_bootstrap_preserves_edits_made_while_it_arrives() {
+    let mut source = SyncPeer::new(1, vec![2], SyncConfig::default());
+    for _ in 0..50 {
+        source.insert(None, "x").unwrap();
+    }
+    let mut target = SyncPeer::new(2, vec![1], SyncConfig::default());
+    let offer = source
+        .receive(2, Message::Hello)
+        .unwrap()
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Send {
+                message: message @ Message::SnapshotOffer { .. },
+                ..
+            } => Some(message),
+            _ => None,
+        })
+        .unwrap();
+    let request = target.receive(1, offer).unwrap().remove(0);
+    let Effect::Send { message, .. } = request else {
+        panic!("expected request")
+    };
+    let reply = source.receive(2, message).unwrap().remove(0);
+    target.insert(None, "local").unwrap();
+    let Effect::Send { message, .. } = reply else {
+        panic!("expected snapshot")
+    };
+    target.receive(1, message).unwrap();
+    assert_eq!(target.replica().history_len(), 51);
+    assert!(target.replica().document().text().contains("local"));
+    assert_eq!(
+        target
+            .replica()
+            .document()
+            .text()
+            .chars()
+            .filter(|&ch| ch == 'x')
+            .count(),
+        50
+    );
+}

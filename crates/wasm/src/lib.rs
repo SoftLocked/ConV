@@ -94,7 +94,21 @@ impl Engine {
         Ok(())
     }
     pub fn edit(&mut self, start: usize, end: usize, text: &str) -> Result<JsValue, JsValue> {
-        let effects = self.peer.edit_utf16(start, end, text).map_err(error)?;
+        let mut candidate = self.peer.clone();
+        let effects = candidate.edit_utf16(start, end, text).map_err(error)?;
+        let sends = effects
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Send { .. }))
+            .count() as u64;
+        self.counter
+            .checked_add(sends)
+            .ok_or_else(|| error("message counter exhausted"))?;
+        for effect in &effects {
+            if let Effect::Send { message, .. } = effect {
+                encode(self.room, self.writer, 0, message).map_err(error)?;
+            }
+        }
+        self.peer = candidate;
         self.output(effects)
     }
     pub fn hello(&mut self, to: &str) -> Result<JsValue, JsValue> {

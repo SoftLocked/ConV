@@ -46,7 +46,7 @@ struct Probe {
     deadline: u64,
     indirect: bool,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Swim {
     id: u128,
     members: BTreeMap<u128, Member>,
@@ -96,6 +96,9 @@ impl Swim {
     fn disseminate(&self, member: Member) -> Vec<Send> {
         self.order
             .iter()
+            .cycle()
+            .skip(self.cursor % self.order.len().max(1))
+            .take(3.min(self.order.len()))
             .map(|&to| Send {
                 to,
                 message: SwimMessage::Update(member),
