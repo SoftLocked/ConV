@@ -1,5 +1,5 @@
 export type Person = { id: string; name: string; connected: boolean; relay?: boolean };
-type Entry = { pc: RTCPeerConnection; channel?: RTCDataChannel; control?: RTCDataChannel; controlQueue: Uint8Array[]; controlQueued: number; presence?: RTCDataChannel; early: RTCIceCandidateInit[]; queue: Uint8Array[]; queued: number; lastCursor?: number; lastSeen?: number };
+type Entry = { pc: RTCPeerConnection; channel?: RTCDataChannel; control?: RTCDataChannel; controlQueue: Uint8Array[]; controlQueued: number; presence?: RTCDataChannel; early: RTCIceCandidateInit[]; queue: Uint8Array[]; queued: number; latestCursor?: number[] };
 export class Mesh {
   private socket?: WebSocket;
   private peers = new Map<string, Entry>();
@@ -73,7 +73,7 @@ export class Mesh {
             }
           } else if (message.candidate) {
             if (entry.pc.remoteDescription) await entry.pc.addIceCandidate(message.candidate);
-            else entry.early.push(message.candidate);
+            else if (entry.early.length < 128) entry.early.push(message.candidate);
           }
         }
       } catch (error) { this.onStatus(`Connection error: ${String(error)}`); }
@@ -123,6 +123,9 @@ export class Mesh {
       }
       if (channel.label === 'presence') {
         entry.presence = channel;
+        channel.bufferedAmountLowThreshold = 4_096;
+        channel.onopen = () => this.flushPresence(entry);
+        channel.onbufferedamountlow = () => this.flushPresence(entry);
         channel.onmessage = ({ data }) => {
           try {
             if (String(data).length > 4_096) return;
@@ -174,8 +177,13 @@ export class Mesh {
     entry.queue.push(bytes); entry.queued += bytes.byteLength; this.flush(entry);
   }
   broadcast(bytes: Uint8Array) { for (const id of this.peers.keys()) this.send(id, bytes); }
+  private flushPresence(entry: Entry) {
+    if (entry.presence?.readyState === 'open' && entry.presence.bufferedAmount < 4_096 && entry.latestCursor) {
+      entry.presence.send(JSON.stringify({ cursor: entry.latestCursor })); entry.latestCursor = undefined;
+    }
+  }
   cursor(position: number[]) {
-    for (const entry of this.peers.values()) if (entry.presence?.readyState === 'open') entry.presence.send(JSON.stringify({ cursor: position }));
+    for (const entry of this.peers.values()) { entry.latestCursor = position; this.flushPresence(entry); }
   }
   pause() {
     this.stopped = true; clearTimeout(this.retry); this.socket?.close(); this.socket = undefined;

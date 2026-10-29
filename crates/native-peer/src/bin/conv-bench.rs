@@ -1,4 +1,5 @@
 //! Real UDP loopback experiment. Peers are Tokio tasks in one process.
+#![recursion_limit = "256"]
 use anyhow::{Result, anyhow};
 use clap::Parser;
 use conv_protocol::outbox::Outbox;
@@ -50,6 +51,8 @@ struct ResultRow {
     received: u64,
     sent_frames: u64,
     received_frames: u64,
+    load_sent: u64,
+    load_received: u64,
     merges: Vec<u64>,
 }
 
@@ -61,6 +64,10 @@ async fn main() -> Result<()> {
             && args.peers <= 500
             && args.edits_per_second > 0
             && args.edits_per_second <= 1000
+    );
+    anyhow::ensure!(
+        !args.full_state || args.peers == 2,
+        "the full-state baseline currently supports exactly two peers so forwarding topology remains identical"
     );
     let writers = args.writers.min(args.peers);
     let room = uuid::Uuid::new_v4().as_u128();
@@ -107,6 +114,7 @@ async fn main() -> Result<()> {
             drop(initial);
             let mut incoming = Reassembler::new(room);
             let mut buffer = [0_u8; 1_201];
+            let mut load_sent = 0_u64; let mut load_received = 0_u64;
             let mut local_edits = 0_u64;
             let mut last_insert = None;
             let mut sequence = 0_u64; let mut sent = 0; let mut received = 0; let mut sent_frames = 0; let mut received_frames = 0; let mut merges = Vec::new();
@@ -148,7 +156,9 @@ async fn main() -> Result<()> {
                     }
                     datagram = socket.recv_from(&mut buffer) => {
                         let (len, _) = datagram?;
-                        if start.elapsed() >= warmup { received += len as u64; received_frames += 1; }
+                        if start.elapsed() >= warmup { received += len as u64; received_frames += 1;
+                            if start.elapsed() < warmup + edit_duration { load_received += len as u64; }
+                        }
                         if let Ok(Some((sender, message))) = incoming.receive(now, &buffer[..len]) {
                             let is_mutation = matches!(message, Message::Mutation(_) | Message::Batch(_));
                             let merge_start = Instant::now();
@@ -168,12 +178,14 @@ async fn main() -> Result<()> {
                         let frames = encode(room, id, sequence, &message).map_err(|e| anyhow!("encode: {e:?}"))?;
                         for frame in frames {
                             let bytes = socket.send_to(&frame, addresses[&to]).await? as u64;
-                            if start.elapsed() >= warmup { sent += bytes; sent_frames += 1; }
+                            if start.elapsed() >= warmup { sent += bytes; sent_frames += 1;
+                                if start.elapsed() < warmup + edit_duration { load_sent += bytes; }
+                            }
                         }
                     }
                 }
             }
-            Ok::<_, anyhow::Error>(ResultRow { peer, sent, received, sent_frames, received_frames, merges })
+            Ok::<_, anyhow::Error>(ResultRow { peer, sent, received, sent_frames, received_frames, load_sent, load_received, merges })
         }));
     }
     ready.wait().await;
@@ -223,7 +235,7 @@ async fn main() -> Result<()> {
         "writers":writers,"delete_every":args.delete_every,"edits_per_second_per_writer":args.edits_per_second,"merge_sample_unit":"decoded mutation or batch message","edit_seconds":args.seconds,"settle_seconds":args.settle_seconds,
         "document_bytes":args.document_bytes,"initialization_seconds":initialization_seconds,"load_executed":writers == 0 || args.seconds == 0 || rows.iter().any(|row| row.peer.replica().history_len() > initial_mutations),"elapsed_seconds":elapsed,"converged":converged,
         "bootstrap":if args.network_bootstrap {"initial history only on peer 1; bootstrap bytes included after the configured warmup"} else {"identical initial state preloaded before network measurement"}, "measurement":"sent and received application frame bytes including headers, control and repair; excludes IP/UDP headers",
-        "per_node": rows.iter().map(|row| serde_json::json!({"sent":row.sent,"received":row.received,"sent_frames":row.sent_frames,"received_frames":row.received_frames,"ipv4_udp_overhead":28 * (row.sent_frames + row.received_frames),"visible_bytes":row.peer.replica().document().text().len(),"tombstones":row.peer.replica().document().deleted_ids().count(),"serialized_history_bytes":row.peer.replica().backup(room).map(|bytes| bytes.len()).unwrap_or(0),"bytes_per_second":(row.sent+row.received) as f64/elapsed,"mutations":row.peer.replica().history_len()})).collect::<Vec<_>>(),
+        "per_node": rows.iter().map(|row| serde_json::json!({"sent":row.sent,"received":row.received,"sent_frames":row.sent_frames,"received_frames":row.received_frames,"ipv4_udp_overhead":28 * (row.sent_frames + row.received_frames),"visible_bytes":row.peer.replica().document().text().len(),"tombstones":row.peer.replica().document().deleted_ids().count(),"serialized_history_bytes":row.peer.replica().backup(room).map(|bytes| bytes.len()).unwrap_or(0),"bytes_per_second":(row.sent+row.received) as f64/elapsed,"active_window_bytes_per_second":(row.load_sent+row.load_received) as f64 / args.seconds.max(1) as f64,"active_window_sent":row.load_sent,"active_window_received":row.load_received,"mutations":row.peer.replica().history_len()})).collect::<Vec<_>>(),
         "protocol_mutation_merge_ns":{"samples":merges.len(),"p50":percentile(50),"p95":percentile(95),"p99":percentile(99)},
         "limitations":["single-host loopback", "merge includes protocol history bookkeeping", "CPU-time profiling pending", "not a browser or WAN result"]
     });

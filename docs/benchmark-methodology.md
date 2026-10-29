@@ -18,7 +18,8 @@ counts. Per-node rates divide combined sent/received application bytes by the
 whole measured edit-plus-settle duration. Short burst experiments must not be
 presented as steady-state rates. Sender-side bootstrap preparation is excluded.
 
-`--full-state` replaces each outgoing mutation message with the sender's complete
+`--full-state` is restricted to two peers so snapshot receipt and delta receipt
+have identical forwarding topology. It replaces each outgoing mutation/batch message with the sender's complete
 retained CRDT mutation history snapshot at that same send event, preserving
 batching, neighbor topology, UDP settings, control messages and repair. This is
 a deliberately simple complete-state baseline. It is not a comparison with
@@ -76,3 +77,8 @@ WAN claim. Native/WASM timings remain separate.
 inserted local scalar when scheduled. Reports retain tombstone counts. `--writers
 0` runs an idle-room workload. Native isolated merge workloads also support a
 deletion-heavy initial history through `--deletion-heavy`.
+
+Reports separate active-edit-window bandwidth from combined edit-plus-settle
+bandwidth. Use active-window rates when discussing steady writing; report
+recovery/settling bytes as well. Qualified steady-state conclusions require
+longer runs than these initial smoke/scale experiments.
