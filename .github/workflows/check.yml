@@ -24,7 +24,19 @@ jobs:
       - run: ./scripts/build-wasm.sh
       - run: pnpm --dir web exec playwright install --with-deps chromium
       - run: pnpm build
+      - run: sudo apt-get update && sudo apt-get install -y coturn
+      - name: Start loopback TURN for relay verification
+        run: >-
+          turnserver --listening-ip=127.0.0.1 --relay-ip=127.0.0.1
+          --listening-port=3478 --min-port=50000 --max-port=50100
+          --no-tls --no-dtls --fingerprint --use-auth-secret
+          --static-auth-secret=conv-ci-only --realm=conv.local
+          --allow-loopback-peers --no-cli --daemon
+          --log-file=/tmp/conv-turn.log --pidfile=/tmp/conv-turn.pid
       - run: pnpm test:browser
+        env:
+          CONV_TURN_URL: turn:127.0.0.1:3478
+          CONV_TURN_SECRET: conv-ci-only
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

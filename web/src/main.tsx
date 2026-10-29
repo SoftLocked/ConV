@@ -26,6 +26,7 @@ function App() {
   const [name, setName] = useState('Untitled document');
   const [people, setPeople] = useState<Person[]>([]), [connection, setConnection] = useState('Connecting');
   const [saved, setSaved] = useState('Loading local document'), [error, setError] = useState('');
+  const [saveError, setSaveError] = useState('');
   const [offline, setOffline] = useState(false);
   const [notice, setNotice] = useState(''), [diagnostics, setDiagnostics] = useState(false);
   const [length, setLength] = useState(0);
@@ -91,7 +92,7 @@ function App() {
                   for (const change of changes.reverse()) frames.push(...(local.edit(change.from, change.to, change.text) as Update).outbound);
                   setSaved('Saving locally'); setLength(Array.from(update.state.doc.toString()).length);
                   host.postMessage({ type: 'local', frames, serial: ++serial.current });
-                } catch (failure) { setError(`Edit failed: ${String(failure)}`); }
+                } catch (failure) { setSaved('Local edit failed'); setError(`Edit failed: ${String(failure)}`); }
               }
               if (update.selectionSet) { try { network.cursor(Array.from(local.anchor(update.state.selection.main.head))); } catch { /* invalid composition boundary */ } }
             }),
@@ -100,7 +101,7 @@ function App() {
           editor.dom.addEventListener('compositionend', () => setTimeout(() => host.postMessage({ type: 'snapshot' }), 0));
           if (initial !== null) { sessionStorage.removeItem(`conv-import:${room}`); editor.dispatch({ changes: { from: 0, insert: initial } }); }
           network.start().catch(failure => setError(String(failure)));
-        } else if (data.type === 'saved' && data.serial === serial.current) setSaved('Saved on this device');
+        } else if (data.type === 'saved' && data.serial === serial.current) { setSaved('Saved on this device'); setSaveError(''); }
         else if (data.type === 'outbound') for (const frame of data.frames) network.send(frame.to, new Uint8Array(frame.data), frame.control);
         else if (data.type === 'broadcast') for (const frame of data.frames) network.broadcast(new Uint8Array(frame.data));
         else if ((data.type === 'remote' || data.type === 'snapshot') && engine.current) {
@@ -113,7 +114,7 @@ function App() {
           paint(text, anchor && head ? { anchor: engine.current.resolve_anchor(anchor), head: engine.current.resolve_anchor(head) } : undefined);
         }
         else if (data.type === 'tick-needed') host.postMessage({ type: 'tick' });
-        else if (data.type === 'error') { setError(data.message); setSaved('Local save failed'); }
+        else if (data.type === 'error') { setSaveError(data.message); setSaved('Local save failed'); }
       } catch (failure) { setError(String(failure)); }
     };
     host.postMessage({ type: 'init', room, writer });
@@ -168,7 +169,7 @@ function App() {
     <section className="writing"><div className="document-heading"><span className="eyebrow">MAKE ROOM FOR AN IDEA</span><input aria-label="Document name" className="title" value={name} maxLength={120} onChange={e => setName(e.target.value)} onBlur={() => { setSaved('Saving locally'); worker.current?.postMessage({ type: 'name', name, serial: ++serial.current }); }}/><div className="save-status"><span className="dot"/>{saved}</div></div><div className="editor" ref={container}/></section>
     <footer><span>{length.toLocaleString()} characters</span><span>Plain text · Markdown</span><button onClick={() => setDiagnostics(!diagnostics)}>Connection details</button></footer>{diagnostics && <div className="diagnostics"><strong>{connection}</strong><p>{people.filter(p => p.connected).length} direct peer connections. Each device saves its own copy. A room link is an invitation, not a cloud backup.</p><code>Room {room.slice(0, 8)}…</code><p><button onClick={() => { if (offline) mesh.current?.resume(); else mesh.current?.pause(); setOffline(!offline); }}>{offline ? 'Reconnect' : 'Work offline'}</button></p></div>}</main>
     <nav className="participants" aria-label="Participants"><div className="eyebrow">IN THIS DOCUMENT</div><div className="person"><span className="avatar">Y</span><div>You<span>Writing locally</span></div><span className="dot"/></div>{people.map((person, i) => <div className="person" key={person.id}><span className="avatar" style={{ background: palette[i % palette.length], color: '#fff' }}>{person.name.slice(0, 1)}</span><div>{person.name}<span>{person.connected ? (person.relay ? 'Connected via relay' : 'Connected') : 'Connecting'}</span></div></div>)}<div className="invite-note"><h3>Better, together.</h3><p>Share a link to bring someone into the same document.</p><button onClick={invite}>Copy invite link ↗</button></div><p className="connection">{navigator.onLine ? connection : 'Offline'}</p></nav></div>
-    {notice && <div className="toast" role="status" onClick={() => setNotice('')}>{notice}</div>}{error && <div className="error" role="alert">{error}</div>}
+    {notice && <div className="toast" role="status" onClick={() => setNotice('')}>{notice}</div>}{(error || saveError) && <div className="error" role="alert">{error || saveError}</div>}
   </div>;
 }
 createRoot(document.getElementById('root')!).render(<App/>);
