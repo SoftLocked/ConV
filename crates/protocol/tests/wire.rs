@@ -5,6 +5,23 @@ use conv_protocol::{
 };
 
 #[test]
+fn complete_frames_pass_even_with_eight_incomplete_bulk_transfers() {
+    let mut source = conv_protocol::replication::Replica::new(9);
+    let mutation = source.insert(None, &"x".repeat(200)).unwrap().unwrap();
+    let mut incoming = Reassembler::new(1);
+    for id in 0..8 {
+        let frames = encode(1, 9, id, &Message::Mutation(mutation.clone())).unwrap();
+        assert!(frames.len() > 1);
+        assert!(incoming.receive(0, &frames[0]).unwrap().is_none());
+    }
+    let hello = encode(1, 10, 99, &Message::Hello).unwrap();
+    assert!(matches!(
+        incoming.receive(0, &hello[0]),
+        Ok(Some((10, Message::Hello)))
+    ));
+}
+
+#[test]
 fn reordered_chunks_and_duplicates_reconstruct_a_valid_document() {
     let mut writer = Replica::new(7);
     let mutation = writer.insert(None, &"🦀".repeat(300)).unwrap().unwrap();

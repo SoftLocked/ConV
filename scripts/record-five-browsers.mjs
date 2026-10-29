@@ -71,7 +71,7 @@ try {
       .document-toolbar{height:31px;padding:0 15px}.tools{gap:11px;font-size:9px}
       .writing{padding:12px 15px;min-height:0}.document-heading>.eyebrow{display:none}
       .title{font-size:22px;margin:0 0 5px}.save-status{font-size:9px}
-      .editor{margin-top:12px;min-height:210px}.cm-editor{font-size:14px;line-height:1.55}.cm-scroller{max-height:210px;overflow:auto}
+      .editor{margin-top:10px;min-height:170px}.cm-editor{font-size:14px;line-height:1.55}.cm-scroller{max-height:170px;overflow:auto}
       .workspace{min-height:0}footer{height:27px}.diagnostics{padding:8px 15px}
     ` });
     await page.getByRole('textbox', { name: 'Document name' }).fill(organic ? 'A garden, together' : 'Launch notes');
@@ -110,6 +110,7 @@ try {
     return EditorView.findFromDOM(document.querySelector('.cm-editor')).state.doc.toString();
   });
   async function phase(message, active = [], offline = [], labels = []) {
+    console.log(message);
     if (captureError) throw captureError;
     await board.evaluate(({ message, active, offline, labels }) => {
       document.getElementById('phase').textContent = message;
@@ -120,7 +121,7 @@ try {
     }, { message, active, offline, labels });
   }
   async function verify(label, expected, reviewState) {
-    await expect.poll(async () => {
+    try { await expect.poll(async () => {
       const values = await Promise.all(names.map((_, i) => text(i)));
       if (!values.every(value => value === values[0])) return false;
       if (values[0].split('\n\nReview log:')[0] !== expected) return false;
@@ -130,11 +131,27 @@ try {
         if (JSON.stringify(actual) !== JSON.stringify(wanted)) return false;
       }
       return true;
-    }, { timeout: 45_000 }).toBe(true);
+    }, { timeout: 45_000 }).toBe(true); }
+    catch (error) {
+      const replicas = await Promise.all(pages.map(async (page, i) => ({ name: names[i], text: await text(i),
+        alert: await page.getByRole('alert').allTextContents(), saved: await page.locator('.save-status').textContent(),
+        persisted_text: await page.evaluate(async room => {
+          const { load } = await import('/src/storage/local.ts');
+          const module = await import('/src/generated/conv_wasm.js'); await module.default();
+          const saved = await load(room); if (!saved.length) return null;
+          const replica = new module.Engine(room, crypto.randomUUID().replaceAll('-', ''), saved.at(-1).backup);
+          const text = replica.text(); replica.free(); return text;
+        }, room),
+      })));
+      await writeFile(new URL(artifact + '.failure.json', output), JSON.stringify({ commit: source, label, expected, reviewState, replicas }, null, 2));
+      throw error;
+    }
+    console.log('Verified:', label);
     const fullText = await text(0);
     const hash = createHash('sha256').update(fullText).digest('hex');
     checkpoints.push({ label, replicas: participantCount, identical: true, sha256: hash, text: fullText });
     await board.evaluate(label => { const item = document.createElement('li'); item.textContent = label; document.getElementById('checks').append(item); }, label);
+    await Promise.all(pages.slice(0, 5).map(page => page.evaluate(() => window.scrollTo(0, 0))));
     await delay(900);
   }
   async function writeLine(index, content) {

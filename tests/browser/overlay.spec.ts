@@ -3,6 +3,27 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
+test('network reassembly pressure cannot reject a local browser edit', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const module = await import('/src/generated/conv_wasm.js'); await module.default();
+    const room = '1'.padStart(32, '0'), writer = 'a'.padStart(32, '0');
+    const worker = new module.Engine(room, writer, undefined); worker.protocol_lane();
+    for (let n = 1; n <= 8; n++) {
+      const source = new module.Engine(room, n.toString(16).padStart(32, '0'), undefined);
+      source.editor_lane(); source.connect([writer]);
+      const frames = source.edit(0, 0, 'x'.repeat(200)).outbound;
+      if (frames.length < 2) throw new Error('Fixture did not produce an incomplete transfer');
+      worker.receive(new Uint8Array(frames[0].data), 0n); source.free();
+    }
+    const editor = new module.Engine(room, writer, undefined); editor.editor_lane(); editor.connect([writer]);
+    for (const frame of editor.edit(0, 0, 'local'.repeat(40)).outbound) worker.receive_local(new Uint8Array(frame.data), 0n);
+    const text = worker.text(), history = worker.history_len();
+    worker.free(); editor.free(); return { text, history };
+  });
+  expect(result).toEqual({ text: 'local'.repeat(40), history: 1 });
+});
+
 for (const count of [12, 50]) test(`${count} browser replicas collaborate through bounded overlay links`, async ({ browser }, testInfo) => {
   test.skip(count === 50 && !process.env.CONV_STRESS_BROWSER, 'Set CONV_STRESS_BROWSER=1 for the 50-session integration test');
   test.setTimeout(240_000);

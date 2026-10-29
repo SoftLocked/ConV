@@ -4,6 +4,7 @@ import { load, save } from '../storage/local';
 const worker = self as unknown as DedicatedWorkerGlobalScope;
 let engine: Engine, room: string, writer: string, name = 'Untitled document', nameChangedAt = 0;
 let history = 0, localSerial = 0, nextSync = 0n, tickPending = false;
+let rejectedFrames = 0;
 let knownPeers: string[] = [], knownMembers: string[] = [];
 let dirty = false, saving = false, saveTimer: ReturnType<typeof setTimeout> | undefined;
 function shuffled(ids: string[]) {
@@ -58,10 +59,12 @@ function enqueue(data: any) {
       worker.postMessage({ type: 'ready', backup: engine.backup(), name, nameChangedAt });
       setInterval(() => { if (!tickPending) { tickPending = true; enqueue({ type: 'tick' }); } }, 20);
     } else if (data.type === 'local') {
-      for (const frame of data.frames) dispatch(engine.receive(new Uint8Array(frame.data), now()) as Update);
+      for (const frame of data.frames) dispatch(engine.receive_local(new Uint8Array(frame.data), now()) as Update);
       history = engine.history_len(); localSerial = data.serial; scheduleSave();
     } else if (data.type === 'receive') {
-      const update = dispatch(engine.receive(new Uint8Array(data.frame), now()) as Update);
+      let update: Update;
+      try { update = dispatch(engine.receive(new Uint8Array(data.frame), now()) as Update); }
+      catch { rejectedFrames++; return; } // Network admission is retried by anti-entropy, not a local-save failure.
       if (update.history !== history) {
         const frame = new Uint8Array(data.frame);
         if (new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(44, true) === 1) worker.postMessage({ type: 'remote', frame: data.frame });
@@ -84,7 +87,7 @@ function enqueue(data: any) {
       const time = now(), sync = time >= nextSync;
       if (sync) nextSync = time + 1_000n;
       dispatch(engine.tick(time, sync) as Update);
-    } else if (data.type === 'snapshot') { worker.postMessage({ type: 'snapshot', backup: engine.backup() });
+    } else if (data.type === 'snapshot') { worker.postMessage({ type: 'snapshot', backup: engine.backup(), rejectedFrames });
     } else if (data.type === 'name') {
       name = String(data.name).slice(0, 120); nameChangedAt = Date.now(); localSerial = data.serial; scheduleSave();
     }

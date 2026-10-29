@@ -193,6 +193,8 @@ export class Mesh {
   }
   send(to: string, bytes: Uint8Array, control = false) {
     const entry = this.peers.get(to);
+    // Chunked summaries need reliable delivery; unordered probes stay separate.
+    if (entry && control && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(44, true) > 1) control = false;
     if (!entry && control && this.people.has(to)) {
       const route: Routed = { kind: 'route', origin: this.id, sequence: ++this.sequence, to, frame: Array.from(bytes), hops: 16 };
       this.remember('route', route.origin, route.sequence); this.forwardRoute(route); return;

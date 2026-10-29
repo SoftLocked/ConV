@@ -34,6 +34,7 @@ pub struct Engine {
     room: u128,
     writer: u128,
     incoming: Reassembler,
+    local_incoming: Reassembler,
     counter: u64,
     outbox: Outbox,
     batching: bool,
@@ -57,6 +58,7 @@ impl Engine {
             room,
             writer,
             incoming: Reassembler::new(room),
+            local_incoming: Reassembler::new(room),
             counter: 0,
             outbox: Outbox::default(),
             batching: true,
@@ -162,6 +164,20 @@ impl Engine {
     pub fn receive(&mut self, frame: &[u8], now_ms: u64) -> Result<JsValue, JsValue> {
         let effects = match self.incoming.receive(now_ms, frame).map_err(error)? {
             Some((from, message)) => self.peer.receive_at(from, message, now_ms).map_err(error)?,
+            None => Vec::new(),
+        };
+        self.output(effects)
+    }
+    /// Reliable in-process editor delivery has its own bounded transfer slots;
+    /// incomplete remote transfers cannot reject the editor's retained work.
+    pub fn receive_local(&mut self, frame: &[u8], now_ms: u64) -> Result<JsValue, JsValue> {
+        let effects = match self.local_incoming.receive(now_ms, frame).map_err(error)? {
+            Some((from, message)) => {
+                if from != self.writer {
+                    return Err(error("local frame has another writer"));
+                }
+                self.peer.receive_at(from, message, now_ms).map_err(error)?
+            }
             None => Vec::new(),
         };
         self.output(effects)

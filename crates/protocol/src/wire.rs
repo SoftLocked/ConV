@@ -76,6 +76,21 @@ pub struct Reassembler {
 }
 
 impl Reassembler {
+    fn decode(
+        sender: u128,
+        checksum: u32,
+        bytes: &[u8],
+    ) -> Result<Option<(u128, Message)>, WireError> {
+        if crc32fast::hash(bytes) != checksum {
+            return Err(WireError::Corrupt);
+        }
+        let (envelope, rest): (Envelope, _) =
+            postcard::take_from_bytes(bytes).map_err(|_| WireError::InvalidMessage)?;
+        if envelope.version != 1 || !rest.is_empty() {
+            return Err(WireError::InvalidMessage);
+        }
+        Ok(Some((sender, envelope.message)))
+    }
     pub fn new(room: u128) -> Self {
         Self {
             room,
@@ -118,6 +133,14 @@ impl Reassembler {
         if index + 1 < total && frame.len() != FRAME_LIMIT {
             return Err(WireError::InvalidFrame);
         }
+        // A complete frame needs no pending-transfer slot. Incomplete bulk
+        // transfers must not starve probes, requests or small repair mutations.
+        if total == 1 {
+            if self.pending.contains_key(&(sender, id)) {
+                return Err(WireError::Corrupt);
+            }
+            return Self::decode(sender, checksum, &frame[HEADER..]);
+        }
         let key = (sender, id);
         if !self.pending.contains_key(&key) && self.pending.len() >= 8 {
             return Err(WireError::Capacity);
@@ -150,14 +173,6 @@ impl Reassembler {
         let pending = self.pending.remove(&key).unwrap();
         self.bytes -= pending.bytes;
         let bytes: Vec<u8> = pending.parts.into_iter().flatten().flatten().collect();
-        if crc32fast::hash(&bytes) != checksum {
-            return Err(WireError::Corrupt);
-        }
-        let (envelope, rest): (Envelope, _) =
-            postcard::take_from_bytes(&bytes).map_err(|_| WireError::InvalidMessage)?;
-        if envelope.version != 1 || !rest.is_empty() {
-            return Err(WireError::InvalidMessage);
-        }
-        Ok(Some((sender, envelope.message)))
+        Self::decode(sender, checksum, &bytes)
     }
 }
