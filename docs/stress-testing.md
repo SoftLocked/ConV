@@ -1,11 +1,11 @@
 # Testing simultaneous users and failure recovery
 
 There are two different capacity questions. The shipped browser room supports
-up to eight users. Two hundred browser users across many rooms could use 25
-rooms of eight. Two hundred users in one room require a bounded browser
-connection overlay and its own routing/membership tests before raising the cap.
-A 200-member full mesh would need 19,900 pairwise peer connections; the native
-UDP harness does not create those WebRTC connections.
+up to 50 users with a bounded WebRTC overlay, and full meshes for rooms of up
+to eight. Two hundred browser users could use four rooms of 50 or 25 rooms of
+eight. A 200-person room remains beyond the tested/admitted capacity. A
+200-member full mesh would need 19,900 pairwise connections; the native UDP
+harness does not create those WebRTC connections.
 
 ## Reproduce the all-writer engine stress suite
 
@@ -97,11 +97,16 @@ capacity. A realistic staging browser farm should:
    load until a declared latency, throughput or resource budget fails; publish
    the failure boundary along with passing results.
 
-Current browser automation covers up to eight contexts, direct and forced local
+Current browser automation covers 12-session overlays and an optional
+50-independent-context integration test, plus direct and forced local
 TURN, offline recovery, a signaling outage, composition events, save failures,
-independent offline tabs and backup restore. The five-view recording also checks
-five simultaneous writers against expected text. A distributed 200-browser
-farm, real-network shaping and a long soak are **not yet run**. Physical-device
+independent offline tabs and backup restore. The five-view organic recording checks simultaneous sentence edits, deletion,
+rewriting and typo correction. Its 50-session mode adds 45 real background
+reviewers on a declared staggered schedule. Fifty isolated contexts consume most
+of the current WSL host’s memory; this is functional integration rather than
+latency qualification. The initial 200-writer native suite and a 50-browser
+long-note burst have retained failures. A distributed 200-browser farm,
+real-network shaping and a long soak are **not yet run**. Physical-device
 checks remain in [manual-validation.md](manual-validation.md).
 
 ## Regression strategy

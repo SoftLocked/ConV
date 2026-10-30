@@ -46,3 +46,21 @@ separate checklist lines, and offline edits on both sides of Eve's disconnect.
 Every checkpoint compares all five actual editor texts with the expected text.
 This local visual demonstration is not a browser latency benchmark. Ports
 3006/5176 must be free; owned services are stopped on exit.
+
+## Organic shared-paragraph scenario and 50 real sessions
+
+```sh
+node scripts/record-five-browsers.mjs --organic --participants 5
+node scripts/record-five-browsers.mjs --organic --participants 50
+```
+
+The five visible writers edit different selections within one shared short
+paragraph. They insert, delete, rewrite and correct typos left by each other.
+The 50-session version creates 45 additional isolated Chromium contexts running
+the full app. They add and rewrite review notes below the visible paragraph,
+with a declared 120 ms spacing between background edits. Every client’s complete
+text and exported CRDT history are checked. This is a functional demo, distinct
+from simultaneous burst-load stress. It writes `demo/organic-50-browsers.webm`,
+a final PNG and a JSON proof; use the corresponding `organic-5-browsers` files
+for the smaller version. Failures write diagnostic JSON instead of a success
+report. Fifty contexts require substantial RAM and can use swap on this host.

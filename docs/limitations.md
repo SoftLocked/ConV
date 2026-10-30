@@ -10,7 +10,8 @@ protects transport links, but independently authenticated end-to-end encryption
 and protection from malicious signaling are outside the initial guarantees.
 The native UDP adapter is an unencrypted cooperative lab transport.
 
-The browser room is capped at eight peers. Browser and real-device results must
+The browser room is capped at 50 sessions, with at most eight direct links per
+session (six steady overlay links above eight participants). Browser and real-device results must
 be distinguished from native task/socket experiments. Native 200-peer results do
 not validate a 200-connection browser overlay. Background tabs and mobile network
 changes require physical-device validation. OS-level IME behavior requires manual
@@ -40,3 +41,11 @@ to established CRDT libraries from the deliberately simple full-state baseline.
 
 Public deployment, Docker image execution in this environment, cross-network
 physical devices, and background-tab/resume validation remain release gates.
+
+The initial 200-native-peer measurements used ten writers. All-200-writer stress
+subsequently failed a declared 30-second settling deadline across three seeds
+and three workloads; retained failures are under benchmarks/stress-results/.
+The 50-browser integration test demonstrates bounded links and complete-state
+recovery on loopback. A large simultaneous review-note burst exposed additional
+backlog under memory pressure. Neither result establishes sustained high-rate
+50-browser service, a 200-browser room, or a long soak.

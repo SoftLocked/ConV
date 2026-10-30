@@ -2,7 +2,7 @@
 
 ConV is a local-first collaborative plain-text editor. Each participant owns a
 Rust CRDT replica, edits immediately, and exchanges changes over WebRTC. It
-supports rooms of **up to eight browser participants**, offline edits, local
+supports rooms of **up to 50 browser participants**, offline edits, local
 recovery, remote cursors, plain-text import/export and history-preserving backups.
 There is no central document store. Signaling and STUN/TURN support connectivity;
 a room link cannot recover a document when no available replica retains a copy.
@@ -60,7 +60,7 @@ pnpm test:browser
 Tests cover CRDT merge algebra/reference agreement, reordered/missing
 predecessors, exact causal holes, three-way partitions, 5,000-mutation reconnects,
 SWIM suspicion/refutation, bounded decoding, snapshot/local-edit races, two
-native processes with durable restart, Unicode, eight browser contexts,
+native processes with durable restart, Unicode, multi-hop browser rooms,
 simultaneous/offline edits, IME events, backups, aborted/quota-failed saves, independently offline tabs
 and cached offline reload.
 Browser contexts simulate independent clients; physical-device checks are listed
@@ -124,7 +124,20 @@ recovery. [Methods](docs/benchmark-methodology.md) define the measurement window
 baselines, clock limits and reproducibility constraints. Targets remain separate
 from observations; the approximate 15 KB/s active traffic target was exceeded.
 
-The recording script creates `demo/conv-demo.webm` and `demo/native.json`. It records real browser collaboration/offline recovery/
+Record the organic shared-paragraph scenario with five visible editors and 45
+real background browser sessions:
+
+```sh
+node scripts/record-five-browsers.mjs --organic --participants 50
+CONV_STRESS_BROWSER=1 pnpm --dir web test:browser --grep '50 browser replicas'
+```
+
+This creates `demo/organic-50-browsers.webm` with text and complete-history checks.
+Use `--participants 5` for the smaller recording. Fifty profiles need substantial
+load-generator memory; local integration does not establish WAN performance.
+See [the browser overlay](docs/browser-overlay.md).
+
+The original recording script creates `demo/conv-demo.webm` and `demo/native.json`. It records real browser collaboration/offline recovery/
 signaling outage, followed by a separately labeled real UDP experiment. Browser
 contexts in this recording are not physical devices. Generated videos stay local.
 
@@ -140,3 +153,19 @@ For implementation details, read the [architecture](docs/architecture.md),
 [CRDT specification](docs/crdt-spec.md), [wire protocol](docs/wire-protocol.md),
 [browser adapter](docs/browser-architecture.md), [membership](docs/membership.md)
 and [original proposal](.claude/decentralized_text_editor_proposal.md).
+
+## Stress every writer
+
+```sh
+python3 scripts/stress-native.py
+```
+
+This requests 200 simultaneous native writers, rather than the ten active writers
+in the initial scale experiments. It retains failed runs, checks actual offered
+load, complete history and canonical convergence, and injects loss/partitions.
+The first nine all-writer runs failed their 30-second settling deadline despite
+achieving the edit load. They are retained under benchmarks/stress-results/.
+A separate 50-browser long-note burst also exposed adapter pressure; its failed
+state is retained. These failures must not be presented as supported high-rate
+capacity. [Stress methods and remaining gates](docs/stress-testing.md) distinguish
+local demonstrations, engine load, many-room browser load and multi-host tests.

@@ -8,8 +8,9 @@ mutation counters and ordering clocks are separate.
 
 The protocol crate retains immutable transactions, tracks exact causal receipt
 including holes, and repairs missing ranges. Native gossip forwards a new mutation once per replica to at most two neighbors
-selected from host-shuffled traversals. The eight-peer browser mesh instead
-broadcasts from the source directly and suppresses forwarding.
+selected from host-shuffled traversals. Small browser rooms broadcast directly
+from the source. Rooms above eight use a bounded six-neighbor reliable overlay
+and forward each newly learned mutation once; see browser-overlay.md.
 Summary exchanges are bidirectional. Hosts batch small deltas on a 20 ms cadence;
 control bypasses bulk queues. Snapshots merge atomically with newer local work.
 Postcard frames carry version, room, sender, message ID, chunk positions and CRC.

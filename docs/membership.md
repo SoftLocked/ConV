@@ -22,5 +22,12 @@ sync gossip carries at most three observations to three neighbors. Production
 native/browser hosts supply fresh shuffled probe traversals. Native `/quit`
 sends a voluntary leave. Observations are capped at 1,024 sessions; helper relay
 tracking is capped at 256 entries with expiry. The full browser room remains
-capped at eight peers. Long-lived native churn/address retirement still needs
+capped at 50 sessions, with at most eight direct links each. Long-lived native churn/address retirement still needs
 further measurement.
+
+Above eight browser members, probes address the known room roster via bounded
+overlay control routing. This profile scales the defaults by four: a four-second
+probe period, one-second direct/indirect timeouts, twenty-second suspicion and
+four-second helper relay expiry. Native and small-room defaults stay unchanged.
+Routed timing accounts for multiple peer hops and browser scheduling; it remains
+provisional failure detection, not proof of a crash or WAN tuning.
