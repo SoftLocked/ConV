@@ -39,7 +39,14 @@ and a hosting account are unnecessary for local use. No `.env` file is required.
 
 Open **http://127.0.0.1:5173**. The development command builds WASM and starts the
 web app and local signaling service; Ctrl+C stops both. Restart it after Rust
-changes. TypeScript changes reload automatically.
+changes. TypeScript changes reload automatically. If the default ports are in
+use, run a separate local instance with:
+
+```sh
+CONV_APP_PORT=5275 CONV_SIGNAL_BIND=127.0.0.1:3102 pnpm dev
+```
+
+Then open `http://127.0.0.1:5275`.
 
 ## Try collaboration
 
@@ -79,8 +86,14 @@ pnpm test:browser
 ```
 
 Stop `pnpm dev` before browser tests: Playwright starts its own servers on ports
-3001, 5173 and 5174. Browser installation may prompt for sudo to install Linux
-libraries. TURN verification is optional locally and is skipped unless
+3001, 5173 and 5174. To leave a development server running, select unused test
+ports instead:
+
+```sh
+CONV_TEST_APP_PORT=5273 CONV_TEST_SIGNAL_PORT=3101 CONV_TEST_PREVIEW_PORT=5274 pnpm test:browser
+```
+
+Browser installation may prompt for sudo to install Linux libraries. TURN verification is optional locally and is skipped unless
 `CONV_TURN_URL` and `CONV_TURN_SECRET` point to a configured relay. CI provisions
 a disposable loopback relay for that test.
 

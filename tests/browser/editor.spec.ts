@@ -1,3 +1,4 @@
+import { APP_URL } from './urls';
 import { expect, test } from '@playwright/test';
 const room = () => crypto.randomUUID().replaceAll('-', '');
 
@@ -19,7 +20,7 @@ test('Unicode editing is saved and restored after reload', async ({ page }, test
 test('two independent devices exchange edits and restore a disconnected writer', async ({ browser }) => {
   const a = await browser.newContext(), b = await browser.newContext();
   const alice = await a.newPage(), bob = await b.newPage();
-  const url = `http://127.0.0.1:5173/#${room()}`;
+  const url = `${APP_URL}/#${room()}`;
   await alice.goto(url); await bob.goto(url);
   const first = alice.getByRole('textbox', { name: 'Document editor' });
   const second = bob.getByRole('textbox', { name: 'Document editor' });
@@ -37,7 +38,7 @@ test('two independent devices exchange edits and restore a disconnected writer',
 test('simultaneous typing retains both writers', async ({ browser }) => {
   const a = await browser.newContext(), b = await browser.newContext();
   const alice = await a.newPage(), bob = await b.newPage();
-  const url = `http://127.0.0.1:5173/#${room()}`;
+  const url = `${APP_URL}/#${room()}`;
   await Promise.all([alice.goto(url), bob.goto(url)]);
   const first = alice.getByRole('textbox', { name: 'Document editor' });
   const second = bob.getByRole('textbox', { name: 'Document editor' });
@@ -53,7 +54,7 @@ test('simultaneous typing retains both writers', async ({ browser }) => {
 test('both sides keep offline edits and converge on reconnection', async ({ browser }) => {
   const a = await browser.newContext(), b = await browser.newContext();
   const alice = await a.newPage(), bob = await b.newPage();
-  const url = `http://127.0.0.1:5173/#${room()}`;
+  const url = `${APP_URL}/#${room()}`;
   await Promise.all([alice.goto(url), bob.goto(url)]);
   const first = alice.getByRole('textbox', { name: 'Document editor' });
   const second = bob.getByRole('textbox', { name: 'Document editor' });
@@ -79,7 +80,7 @@ test('healthy peer channels survive signaling loss', async ({ browser }) => {
     if (outage) socket.close();
     else { socket.connectToServer(); sockets.push(socket); }
   });
-  const url = `http://127.0.0.1:5173/#${room()}`;
+  const url = `${APP_URL}/#${room()}`;
   await Promise.all([alice.goto(url), bob.goto(url)]);
   const first = alice.getByRole('textbox', { name: 'Document editor' });
   const second = bob.getByRole('textbox', { name: 'Document editor' });
@@ -93,7 +94,7 @@ test('healthy peer channels survive signaling loss', async ({ browser }) => {
 test('eight browser replicas converge', async ({ browser }) => {
   const contexts = await Promise.all(Array.from({ length: 8 }, () => browser.newContext()));
   const pages = await Promise.all(contexts.map(context => context.newPage()));
-  const url = `http://127.0.0.1:5173/#${room()}`;
+  const url = `${APP_URL}/#${room()}`;
   await Promise.all(pages.map(page => page.goto(url)));
   const editors = pages.map(page => page.getByRole('textbox', { name: 'Document editor' }));
   await Promise.all(editors.map(editor => expect(editor).toBeVisible()));
@@ -106,7 +107,7 @@ test('forced TURN relay carries document edits', async ({ browser }) => {
   test.skip(!process.env.CONV_TURN_URL, 'Set CONV_TURN_URL and CONV_TURN_SECRET with a running TURN server');
   const a = await browser.newContext(), b = await browser.newContext();
   const alice = await a.newPage(), bob = await b.newPage();
-  const url = `http://127.0.0.1:5173/?relay#${room()}`;
+  const url = `${APP_URL}/?relay#${room()}`;
   await Promise.all([alice.goto(url), bob.goto(url)]);
   await alice.getByRole('textbox', { name: 'Document editor' }).fill('through TURN');
   await expect(bob.getByRole('textbox', { name: 'Document editor' })).toHaveText('through TURN', { timeout: 15_000 });
@@ -117,7 +118,7 @@ test('forced TURN relay carries document edits', async ({ browser }) => {
 test('IME composition survives concurrent remote text', async ({ browser }) => {
   const a = await browser.newContext(), b = await browser.newContext();
   const alice = await a.newPage(), bob = await b.newPage();
-  const url = `http://127.0.0.1:5173/#${room()}`;
+  const url = `${APP_URL}/#${room()}`;
   await Promise.all([alice.goto(url), bob.goto(url)]);
   const first = alice.getByRole('textbox', { name: 'Document editor' });
   const second = bob.getByRole('textbox', { name: 'Document editor' });
@@ -137,7 +138,7 @@ test('IME composition survives concurrent remote text', async ({ browser }) => {
 
 test('large paste and a versioned backup restore retain the document', async ({ browser }, testInfo) => {
   const source = await browser.newContext(); const page = await source.newPage();
-  await page.goto(`http://127.0.0.1:5173/#${room()}`);
+  await page.goto(`${APP_URL}/#${room()}`);
   const text = '🦀'.repeat(8_200);
   await page.getByRole('textbox', { name: 'Document editor' }).fill(text);
   await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -145,7 +146,7 @@ test('large paste and a versioned backup restore retain the document', async ({ 
   const download = await pending; const path = testInfo.outputPath('document.conv'); await download.saveAs(path);
   await source.close();
   const restored = await browser.newContext(); const other = await restored.newPage();
-  await other.goto(`http://127.0.0.1:5173/#${room()}`);
+  await other.goto(`${APP_URL}/#${room()}`);
   await expect(other.getByRole('textbox', { name: 'Document editor' })).toBeVisible();
   await other.getByLabel('Restore', { exact: true }).setInputFiles(path);
   await expect(other.getByRole('textbox', { name: 'Document editor' })).toHaveText(text, { timeout: 15_000 });

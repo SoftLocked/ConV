@@ -1,3 +1,4 @@
+import { APP_URL, SIGNAL_PORT } from './urls';
 import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -13,7 +14,7 @@ test('editor replica repairs missed worker frames from exact causal summaries', 
       await route.fulfill({ response, body });
     });
     const alice = await a.newPage(), bob = await b.newPage();
-    const url = `http://127.0.0.1:5173/#${crypto.randomUUID().replaceAll('-', '')}`;
+    const url = `${APP_URL}/#${crypto.randomUUID().replaceAll('-', '')}`;
     await Promise.all([alice.goto(url), bob.goto(url)]);
     const first = alice.getByRole('textbox', { name: 'Document editor' }), second = bob.getByRole('textbox', { name: 'Document editor' });
     await first.fill('A remote paragraph whose live editor frames are dropped.');
@@ -59,20 +60,20 @@ for (const count of [12, 50]) test(`${count} browser replicas collaborate throug
     const room = crypto.randomUUID().replaceAll('-', '');
     const editors = pages.map(page => page.getByRole('textbox', { name: 'Document editor' }));
     for (let index = 0; index < count; index += 5) await Promise.all(pages.slice(index, index + 5).map(async page => {
-      await page.goto(`http://127.0.0.1:5173/#${room}`);
+      await page.goto(`${APP_URL}/#${room}`);
       await expect(page.getByRole('textbox', { name: 'Document editor' })).toBeVisible({ timeout: 30_000 });
     }));
     await Promise.all(pages.map(page => page.getByRole('button', { name: 'Connection details' }).click()));
     await expect.poll(async () => Promise.all(pages.map(page => page.locator('.diagnostics').getAttribute('data-participants'))), { timeout: 30_000 }).toEqual(pages.map(() => String(count)));
     await expect.poll(async () => (await Promise.all(pages.map(page => page.locator('.diagnostics').getAttribute('data-direct-links')))).every(value => Number(value) >= 2 && Number(value) <= 8), { timeout: 30_000 }).toBe(true);
     if (count === 50) {
-      const capacity = await pages[0].evaluate(room => new Promise((resolve, reject) => {
-        const url = new URL('/signal', location.href); url.protocol = 'ws:';
+      const capacity = await pages[0].evaluate(({ room, signalPort }) => new Promise((resolve, reject) => {
+        const url = new URL(`ws://127.0.0.1:${signalPort}/signal`);
         url.search = new URLSearchParams({ room, session: crypto.randomUUID().replaceAll('-', ''), name: 'Extra participant' }).toString();
         const extra = new WebSocket(url);
         const timeout = setTimeout(() => { extra.close(); reject(new Error('Capacity response missing')); }, 10_000);
         extra.onmessage = ({ data }) => { clearTimeout(timeout); resolve(JSON.parse(String(data))); extra.close(); };
-      }), room);
+      }), { room, signalPort: SIGNAL_PORT });
       expect(capacity).toEqual({ type: 'capacity', limit: 50 });
     }
     await Promise.all(editors.map(async (editor, i) => { await editor.press('Control+End'); await pages[i].keyboard.insertText(`<writer-${i}>`); }));

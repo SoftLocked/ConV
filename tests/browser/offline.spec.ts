@@ -1,8 +1,9 @@
+import { PREVIEW_URL } from './urls';
 import { test, expect } from '@playwright/test';
 test('cached app reloads and edits while the browser is offline', async ({ browser }) => {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(`http://127.0.0.1:5174/#${crypto.randomUUID().replaceAll('-', '')}`);
+  await page.goto(`${PREVIEW_URL}/#${crypto.randomUUID().replaceAll('-', '')}`);
   const editor = page.getByRole('textbox', { name: 'Document editor' });
   await editor.fill('saved before offline');
   await expect(page.getByText('Saved on this device', { exact: true })).toBeVisible();

@@ -1,3 +1,4 @@
+import { APP_URL } from './urls';
 import { test, expect } from '@playwright/test';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
@@ -10,7 +11,7 @@ test('measure isolated WASM merges and foreground editor latency', async ({ brow
   test.skip(!enabled, 'Set CONV_BENCH_BROWSER=1 to run measured experiments');
   test.setTimeout(180_000);
   const context = await browser.newContext(); const page = await context.newPage();
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto(APP_URL);
   const editor = page.getByRole('textbox', { name: 'Document editor' }); await expect(editor).toBeVisible();
   const wasm = await page.evaluate(async () => {
     const module = await import('/src/generated/conv_wasm.js'); await module.default();
@@ -46,7 +47,7 @@ test('measure isolated WASM merges and foreground editor latency', async ({ brow
   const contexts = await Promise.all(Array.from({ length: 8 }, () => browser.newContext()));
   const pages = await Promise.all(contexts.map(context => context.newPage()));
   const room = crypto.randomUUID().replaceAll('-', '');
-  await Promise.all(pages.map(page => page.goto(`http://127.0.0.1:5173/#${room}`)));
+  await Promise.all(pages.map(page => page.goto(`${APP_URL}/#${room}`)));
   const editors = pages.map(page => page.getByRole('textbox', { name: 'Document editor' }));
   await Promise.all(editors.map(editor => expect(editor).toBeVisible()));
   await editors[0].fill('base'); await Promise.all(editors.map(editor => expect(editor).toHaveText('base', { timeout: 15_000 })));
