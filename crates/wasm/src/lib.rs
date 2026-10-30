@@ -91,6 +91,9 @@ impl Engine {
     pub fn history_len(&self) -> usize {
         self.peer.replica().history_len()
     }
+    pub fn causal_summary(&self) -> Result<Vec<u8>, JsValue> {
+        postcard::to_allocvec(self.peer.replica().summary()).map_err(error)
+    }
     pub fn anchor(&self, offset: usize) -> Result<Vec<u8>, JsValue> {
         let anchor = self
             .peer

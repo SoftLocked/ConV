@@ -36,6 +36,8 @@ function App() {
   const peers = useRef<Person[]>([]), cursorState = useRef(new Map<string, { bytes: number[]; seen: number; active: number }>());
   useEffect(() => {
     let stopped = false;
+    let snapshotPending = false;
+    let selectionAnchors: { anchor: Uint8Array; head: Uint8Array } | undefined;
     const host = new Worker(new URL('./worker/core.ts', import.meta.url), { type: 'module' }); worker.current = host;
     const participant = sessionStorage.getItem('conv-name') ?? `Writer ${writer.slice(0, 4)}`;
     sessionStorage.setItem('conv-name', participant);
@@ -48,7 +50,7 @@ function App() {
         if (Date.now() - cursor.seen > 10_000) { cursorState.current.delete(id); continue; }
         const index = peers.current.findIndex(p => p.id === id);
         if (index < 0) continue;
-        if (values.length < 12) try { values.push({ position: engine.current.resolve_anchor(new Uint8Array(cursor.bytes)), name: peers.current[index].name, color: palette[index % palette.length] }); } catch { /* dependency has not arrived yet */ }
+        if (values.length < (peers.current.length > 7 ? 5 : 12)) try { values.push({ position: engine.current.resolve_anchor(new Uint8Array(cursor.bytes)), name: peers.current[index].name, color: palette[index % palette.length] }); } catch { /* dependency has not arrived yet */ }
       }
       const signature = JSON.stringify(values);
       if (signature !== cursorSignature) { cursorSignature = signature; view.current.dispatch({ effects: cursors.of(values) }); }
@@ -105,10 +107,17 @@ function App() {
                   host.postMessage({ type: 'local', frames, serial: ++serial.current });
                 } catch (failure) { setSaved('Local edit failed'); setError(`Edit failed: ${String(failure)}`); }
               }
-              if (update.selectionSet) { try { network.cursor(Array.from(local.anchor(update.state.selection.main.head))); } catch { /* invalid composition boundary */ } }
+              if (update.selectionSet || update.docChanged) {
+                try {
+                  const selection = update.state.selection.main;
+                  selectionAnchors = { anchor: local.anchor(selection.anchor), head: local.anchor(selection.head) };
+                  if (update.selectionSet) network.cursor(Array.from(selectionAnchors.head));
+                } catch { /* invalid composition boundary */ }
+              }
             }),
           ] }) });
           view.current = editor; setLength(Array.from(editor.state.doc.toString()).length);
+          selectionAnchors = { anchor: local.anchor(0), head: local.anchor(0) };
           editor.dom.addEventListener('compositionend', () => setTimeout(() => host.postMessage({ type: 'snapshot' }), 0));
           if (initial !== null) { sessionStorage.removeItem(`conv-import:${room}`); editor.dispatch({ changes: { from: 0, insert: initial } }); }
           network.start().catch(failure => setError(String(failure)));
@@ -116,25 +125,33 @@ function App() {
         else if (data.type === 'saved' && data.serial === serial.current) { setSaved('Saved on this device'); setSaveError(''); }
         else if (data.type === 'outbound') for (const frame of data.frames) network.send(frame.to, new Uint8Array(frame.data), frame.control);
         else if (data.type === 'broadcast') for (const frame of data.frames) network.broadcast(new Uint8Array(frame.data));
+        else if (data.type === 'editor-summary' && engine.current && !snapshotPending && !view.current?.composing) {
+          const local = engine.current.causal_summary(), summary = new Uint8Array(data.summary);
+          if (local.length !== summary.length || local.some((value, index) => value !== summary[index])) {
+            snapshotPending = true; host.postMessage({ type: 'snapshot' });
+          }
+        }
         else if ((data.type === 'remote' || data.type === 'snapshot') && engine.current) {
+          if (data.type === 'snapshot') snapshotPending = false;
           if (view.current?.composing) return;
-          const cursor = view.current?.state.selection.main;
-          const anchor = cursor && engine.current.anchor(cursor.anchor), head = cursor && engine.current.anchor(cursor.head);
+          const cursor = selectionAnchors;
+          const before = engine.current.history_len();
           let text: string;
           if (data.type === 'snapshot') { engine.current.merge_backup(data.backup); text = engine.current.text(); }
           else text = (engine.current.receive(new Uint8Array(data.frame), now()) as Update).text;
-          paint(text, anchor && head ? { anchor: engine.current.resolve_anchor(anchor), head: engine.current.resolve_anchor(head) } : undefined);
+          if (engine.current.history_len() === before) return;
+          paint(text, cursor ? { anchor: engine.current.resolve_anchor(cursor.anchor), head: engine.current.resolve_anchor(cursor.head) } : undefined);
         }
         else if (data.type === 'error') { setSaveError(data.message); setSaved('Local save failed'); }
       } catch (failure) {
-        if (data.type === 'remote') host.postMessage({ type: 'snapshot' });
+        if (data.type === 'remote') { if (!snapshotPending) { snapshotPending = true; host.postMessage({ type: 'snapshot' }); } }
         else setError(String(failure));
       }
     };
     host.postMessage({ type: 'init', room, writer });
     const heartbeat = setInterval(() => {
       refreshCursors();
-      if (engine.current && view.current) { try { network.cursor(Array.from(engine.current.anchor(view.current.state.selection.main.head))); } catch { /* composing */ } }
+      if (selectionAnchors) network.cursor(Array.from(selectionAnchors.head));
     }, 1_000);
     return () => { stopped = true; clearInterval(heartbeat); host.terminate(); network.close(); view.current?.destroy(); engine.current?.free(); };
   }, [room, writer]);

@@ -3,6 +3,27 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
+test('editor replica repairs missed worker frames from exact causal summaries', async ({ browser }) => {
+  const a = await browser.newContext(), b = await browser.newContext();
+  try {
+    await b.route('**/src/worker/core.ts*', async route => {
+      const response = await route.fetch(), original = await response.text();
+      const body = original.replace(/if\s*\(!data.control\)\s*worker.postMessage\(\{[^}]*type:\s*["']remote["'][^}]*\}\);/, '/* Test fault: drop the worker-to-editor document stream. */');
+      expect(body).not.toBe(original);
+      await route.fulfill({ response, body });
+    });
+    const alice = await a.newPage(), bob = await b.newPage();
+    const url = `http://127.0.0.1:5173/#${crypto.randomUUID().replaceAll('-', '')}`;
+    await Promise.all([alice.goto(url), bob.goto(url)]);
+    const first = alice.getByRole('textbox', { name: 'Document editor' }), second = bob.getByRole('textbox', { name: 'Document editor' });
+    await first.fill('A remote paragraph whose live editor frames are dropped.');
+    await expect(second).toHaveText('A remote paragraph whose live editor frames are dropped.', { timeout: 15_000 });
+    await second.press('Control+End'); await bob.keyboard.insertText(' Local work stays.');
+    await expect(first).toContainText('Local work stays.');
+    await expect.poll(async () => (await first.textContent()) === (await second.textContent())).toBe(true);
+  } finally { await a.close(); await b.close(); }
+});
+
 test('network reassembly pressure cannot reject a local browser edit', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {

@@ -87,6 +87,7 @@ function enqueue(data: any) {
       const time = now(), sync = time >= nextSync;
       if (sync) nextSync = time + 1_000n;
       dispatch(engine.tick(time, sync) as Update);
+      if (sync) worker.postMessage({ type: 'editor-summary', summary: engine.causal_summary() });
     } else if (data.type === 'snapshot') { worker.postMessage({ type: 'snapshot', backup: engine.backup(), rejectedFrames });
     } else if (data.type === 'name') {
       name = String(data.name).slice(0, 120); nameChangedAt = Date.now(); localSerial = data.serial; scheduleSave();
