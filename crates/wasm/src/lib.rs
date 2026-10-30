@@ -41,6 +41,7 @@ pub struct Engine {
     include_text: bool,
     rendered_history: usize,
     rendered_text: String,
+    positions: Option<(usize, conv_document::positions::PositionIndex)>,
 }
 
 #[wasm_bindgen]
@@ -67,6 +68,7 @@ impl Engine {
             include_text: true,
             rendered_history: usize::MAX,
             rendered_text: String::new(),
+            positions: None,
         })
     }
     pub fn merge_backup(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
@@ -94,18 +96,16 @@ impl Engine {
     pub fn causal_summary(&self) -> Result<Vec<u8>, JsValue> {
         postcard::to_allocvec(self.peer.replica().summary()).map_err(error)
     }
-    pub fn anchor(&self, offset: usize) -> Result<Vec<u8>, JsValue> {
+    pub fn anchor(&mut self, offset: usize) -> Result<Vec<u8>, JsValue> {
         let anchor = self
-            .peer
-            .replica()
-            .document()
+            .position_index()
             .anchor_utf16(offset)
             .ok_or_else(|| error("invalid cursor boundary"))?;
         postcard::to_allocvec(&anchor).map_err(error)
     }
-    pub fn resolve_anchor(&self, bytes: &[u8]) -> Result<usize, JsValue> {
+    pub fn resolve_anchor(&mut self, bytes: &[u8]) -> Result<usize, JsValue> {
         let anchor = postcard::from_bytes(bytes).map_err(error)?;
-        Ok(self.peer.replica().document().resolve_anchor(anchor))
+        Ok(self.position_index().resolve_anchor(anchor))
     }
     pub fn needs_probe_order(&self) -> bool {
         self.peer.needs_probe_order()
@@ -119,8 +119,8 @@ impl Engine {
         );
         Ok(())
     }
-    pub fn text(&self) -> String {
-        self.peer.replica().document().text()
+    pub fn text(&mut self) -> String {
+        self.position_index().text().to_owned()
     }
     pub fn backup(&self) -> Result<Vec<u8>, JsValue> {
         self.peer.replica().backup(self.room).map_err(error)
@@ -201,6 +201,20 @@ impl Engine {
     }
 }
 impl Engine {
+    fn position_index(&mut self) -> &conv_document::positions::PositionIndex {
+        let history = self.peer.replica().history_len();
+        if self
+            .positions
+            .as_ref()
+            .is_none_or(|(seen, _)| *seen != history)
+        {
+            self.positions = Some((
+                history,
+                conv_document::positions::PositionIndex::new(self.peer.replica().document()),
+            ));
+        }
+        &self.positions.as_ref().unwrap().1
+    }
     fn output(&mut self, effects: Vec<Effect>) -> Result<JsValue, JsValue> {
         let effects = if self.batching {
             self.outbox.push(effects)

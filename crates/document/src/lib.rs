@@ -451,3 +451,4 @@ mod tests {
 }
 
 pub mod experiment;
+pub mod positions;
