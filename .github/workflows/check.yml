@@ -1,5 +1,8 @@
 name: check
 on: [push, pull_request]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   correctness:
     runs-on: ubuntu-latest
@@ -28,16 +31,39 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y coturn
       - name: Start loopback TURN for relay verification
         run: >-
-          turnserver --listening-ip=127.0.0.1 --relay-ip=127.0.0.1
-          --listening-port=3478 --min-port=50000 --max-port=51000
+          turnserver -n --listening-ip=127.0.0.1 --relay-ip=127.0.0.1
+          --listening-port=3499 --min-port=50000 --max-port=51000
           --no-tls --no-dtls --fingerprint --use-auth-secret
           --static-auth-secret=conv-ci-only --realm=conv.local
           --allow-loopback-peers --no-cli --daemon
           --log-file=/tmp/conv-turn.log --pidfile=/tmp/conv-turn.pid
+      - name: Verify test TURN listener
+        run: |
+          python3 - <<'PY'
+          import os, socket, struct
+          transaction = os.urandom(12)
+          request = struct.pack('!HHI12s', 1, 0, 0x2112A442, transaction)
+          with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+              client.settimeout(.5)
+              for _ in range(20):
+                  client.sendto(request, ('127.0.0.1', 3499))
+                  try:
+                      response, _ = client.recvfrom(4096)
+                  except socket.timeout:
+                      continue
+                  if response[:2] == b'\x01\x01' and response[8:20] == transaction:
+                      print('Test TURN listener is ready')
+                      break
+              else:
+                  raise SystemExit('Test TURN listener did not respond')
+          PY
       - run: pnpm test:browser
         env:
-          CONV_TURN_URL: turn:127.0.0.1:3478
+          CONV_TURN_URL: turn:127.0.0.1:3499
           CONV_TURN_SECRET: conv-ci-only
+      - name: Show relay diagnostics on failure
+        if: failure()
+        run: tail -100 /tmp/conv-turn*.log || true
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
