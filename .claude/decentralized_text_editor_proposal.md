@@ -2,6 +2,11 @@
 
 ## Project proposal
 
+**Current scope update:** The project will be published on GitHub for local
+clone-and-run use. Public hosting and a new demo recording are not release
+requirements. The hosted milestones below are retained as the original proposal;
+[the current status](../docs/status.md) records the revised scope and known limits.
+
 **Working name:** ConV<br>
 **Owner:** Harikrishna Vardhineedi<br>
 **Status:** Proposed rebuild from scratch<br>

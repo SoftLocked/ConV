@@ -1,6 +1,8 @@
-# Hosting
+# Optional hosting
 
-The repository contains a three-service Compose stack: a static web host with
+Hosting is not required to clone or run ConV and is outside the current release
+scope. These instructions are retained for optional future use. The repository
+contains a three-service Compose stack: a static web host with
 Caddy HTTPS/WSS termination, ephemeral Axum signaling, and Coturn relay. Live
 documents are held by participants. Neither the static host nor signaling is a
 cloud document store.
@@ -44,5 +46,6 @@ The Caddy 2.10.2 configuration validates locally, and the Compose/workflow YAML
 parses. Direct and forced loopback TURN browser paths have passed. Docker
 Desktop's WSL integration is disabled in the current environment, so container
 images and this complete Compose deployment have not yet been built or launched
-here. No public host/domain or deployment account has been supplied. Publishing
-and physical-device/WAN validation remain explicit release gates.
+here. No public host/domain or deployment account is required for the local-first
+GitHub release. Container execution and physical-device/WAN validation remain
+unverified; this configuration should not be described as a tested deployment.

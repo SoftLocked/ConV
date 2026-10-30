@@ -39,8 +39,9 @@ WAN, animation-frame timing as physical-screen timing, or steady-state byte
 reduction as a whole-session reduction. Do not claim minimal cost or superiority
 to established CRDT libraries from the deliberately simple full-state baseline.
 
-Public deployment, Docker image execution in this environment, cross-network
-physical devices, and background-tab/resume validation remain release gates.
+Public hosting is outside the current clone-and-run release scope. Docker
+execution, cross-network physical devices and background-tab/resume behavior
+remain unverified; local publication does not establish those capabilities.
 
 The initial 200-native-peer measurements used ten writers. All-200-writer stress
 subsequently failed a declared 30-second settling deadline across three seeds

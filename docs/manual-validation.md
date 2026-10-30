@@ -1,6 +1,7 @@
 # Physical-device release checks
 
-These checks are pending. Automated Chromium contexts, loopback TURN and virtual
+These optional real-device/hosted checks are unverified. They are not required
+to publish the local clone-and-run repository. Automated Chromium contexts, loopback TURN and virtual
 partitions do not substitute for devices on different networks. Record the tested
 commit, date, OS/browser versions, device, networks, TURN configuration and result.
 Never attach invitation tokens, document content, full SDP or ICE candidates to

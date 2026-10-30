@@ -1,171 +1,111 @@
 # ConV
 
-ConV is a local-first collaborative plain-text editor. Each participant owns a
-Rust CRDT replica, edits immediately, and exchanges changes over WebRTC. It
-supports rooms of **up to 50 browser participants**, offline edits, local
-recovery, remote cursors, plain-text import/export and history-preserving backups.
-There is no central document store. Signaling and STUN/TURN support connectivity;
-a room link cannot recover a document when no available replica retains a copy.
+ConV is a local-first collaborative plain-text editor built with Rust,
+WebAssembly, React, CodeMirror and WebRTC. Each browser owns a document replica,
+applies edits locally, and exchanges changes with peers. It supports offline
+editing, local persistence, remote cursors, text import/export and CRDT backups.
 
-The shared Rust engine also runs deterministic failure simulations and native
-UDP experiments with 200 replicas. Those are laboratory measurements, separate
-from browser capacity. A fresh local Git clone was verified through frozen/offline dependency
-installation, `pnpm dev`, editing and durable reload. The app is verified locally; public deployment, Docker
-execution here and physical-device/WAN checks remain pending. See
-[delivery status](docs/status.md) and [limitations](docs/limitations.md).
+**Status:** research prototype intended for cloning and local use. Small-room
+collaboration has automated coverage. The overlay admits up to 50 sessions, but
+larger-room mixed-edit and stress scenarios still have completion-deadline
+failures. See [current status](docs/status.md) and [limitations](docs/limitations.md).
 
-## Run locally
+## Clone and run
 
-Use Linux/WSL with Rust/rustup, a C linker/build tools, Node 24 and pnpm 10.28.2.
-The repository pins Rust 1.90.0. On Ubuntu/WSL, install build tools with
-`sudo apt-get install build-essential pkg-config`. After installing Rust, open a
-new terminal or run `source "$HOME/.cargo/env"`.
-
-From the repository root:
+Use Linux or WSL with Bash, Rust/rustup, Node.js 24 and a C compiler. The repository
+pins Rust 1.90.0 and pnpm 10.28.2. On Ubuntu/WSL, install build tools if needed:
 
 ```sh
-rustup target add wasm32-unknown-unknown
+sudo apt-get update
+sudo apt-get install build-essential pkg-config
+```
+
+Then:
+
+```sh
+git clone https://github.com/SoftLocked/ConV.git
+cd ConV
+rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+rustup target add wasm32-unknown-unknown --toolchain 1.90.0
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 npm install -g pnpm@10.28.2
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-`pnpm dev` builds signaling and WASM, then runs both services. Open
-**http://127.0.0.1:5173** and copy the invite link into another browser profile.
-Ctrl+C stops the development services. Rust changes require restarting this
-command; TypeScript changes reload automatically. Localhost is suitable for local
-browser profiles; actual remote devices require an accessible HTTPS deployment.
+Install Rust through [rustup](https://rustup.rs/) if it is not available, and open
+a new shell afterward. The first build can take several minutes. Docker, a domain
+and a hosting account are unnecessary for local use. No `.env` file is required.
 
-Wait for **Saved on this device** before closing. Browser storage can be cleared
-or evicted; export a **Backup** to preserve room identity, history and tombstones.
-Plain-text import starts a new room. Anyone with a room link can read and edit;
-the initial scope assumes cooperative participants. Generic undo is disabled
-until collaboration-aware undo is designed.
+Open **http://127.0.0.1:5173**. The development command builds WASM and starts the
+web app and local signaling service; Ctrl+C stops both. Restart it after Rust
+changes. TypeScript changes reload automatically.
 
-## Check correctness
+## Try collaboration
+
+1. Open the app in a normal browser window.
+2. Copy the complete URL, including its `#room` portion, into an incognito window
+   or a different browser profile. Independent profiles have separate storage.
+3. Edit different words or sentences in the same paragraph and watch changes
+   appear in both windows.
+4. In one window, select **Connection details → Work offline**. Edit on both
+   sides, then select **Reconnect** and check that both versions agree.
+
+Signaling introduces peers; document changes travel over WebRTC. Each profile
+saves its own history in IndexedDB. Wait for **Saved on this device** before
+closing, and export a **Backup** before clearing browser storage. Text import
+creates a new room; a CRDT backup preserves identity and history.
+
+A room link is a bearer invitation: anyone with it can read and edit. A newcomer
+needs a reachable replica holding the document; there is no cloud document store.
+Generic undo is disabled until collaboration-aware undo is implemented. Sharing a
+localhost URL with a different physical computer will not connect it to your app.
+
+## Run checks
+
+From the repository root, after dependency installation:
 
 ```sh
 cargo fmt --all -- --check
 cargo test --locked --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo build -p conv-native-peer -p conv-signaling
+cargo build --locked -p conv-native-peer -p conv-signaling
 python3 tests/native/smoke.py
 ./scripts/build-wasm.sh
 pnpm build
+node --test tests/network/topology.test.mjs
 pnpm --dir web exec playwright install --with-deps chromium
 pnpm test:browser
 ```
 
-Tests cover CRDT merge algebra/reference agreement, reordered/missing
-predecessors, exact causal holes, three-way partitions, 5,000-mutation reconnects,
-SWIM suspicion/refutation, bounded decoding, snapshot/local-edit races, two
-native processes with durable restart, Unicode, multi-hop browser rooms,
-simultaneous/offline edits, IME events, backups, aborted/quota-failed saves, independently offline tabs
-and cached offline reload.
-Browser contexts simulate independent clients; physical-device checks are listed
-[separately](docs/manual-validation.md). CI runs the same checks on GitHub; the
-workflow has not been executed remotely in this session.
+Stop `pnpm dev` before browser tests: Playwright starts its own servers on ports
+3001, 5173 and 5174. Browser installation may prompt for sudo to install Linux
+libraries. TURN verification is optional locally and is skipped unless
+`CONV_TURN_URL` and `CONV_TURN_SECRET` point to a configured relay. CI provisions
+a disposable loopback relay for that test.
 
-Forced TURN testing requires a running relay with expiring shared-secret
-credentials:
+Tests cover CRDT/reference agreement, merge algebra, causal holes, partitions,
+SWIM, chunking and buffer pressure, native restart, Unicode/composition, offline
+editing, failed saves, backups and multi-hop browser collaboration. Expensive
+50-browser and performance tests require explicit flags; they are not part of
+the default browser run.
 
-```sh
-CONV_TURN_URL=turn:YOUR_TURN_HOST:3478 CONV_TURN_SECRET=YOUR_SERVER_SECRET pnpm test:browser
-```
+## Experiments and design
 
-The relay test checks the selected ICE candidate. It is skipped when TURN is
-unconfigured. Keep the shared secret server-side; it is never a frontend build
-variable. The local verification used a disposable loopback Coturn server.
+The engine also runs native UDP experiments. Earlier 200-peer measurements used
+ten active writers. The all-200-writer stress suite initially failed its settling
+deadline; failed runs remain in the repository. Native task/socket results and
+single-host browser checks are separate from WAN or production capacity claims.
 
-## Native peers and failure demonstrations
+- [Architecture](docs/architecture.md), [CRDT specification](docs/crdt-spec.md)
+  and [wire protocol](docs/wire-protocol.md).
+- [Browser adapter](docs/browser-architecture.md), [overlay](docs/browser-overlay.md)
+  and [membership](docs/membership.md).
+- [Measured results](benchmarks/reports/current/report.md),
+  [measurement methods](docs/benchmark-methodology.md) and
+  [stress testing](docs/stress-testing.md).
+- [Optional demo scripts](docs/demo.md) and
+  [optional hosting configuration](docs/deployment.md).
 
-In separate terminals, use separate state files:
-
-```sh
-cargo run -p conv-native-peer --bin conv-native-peer -- --bind 127.0.0.1:7001 --seed 127.0.0.1:7002 --state alice.conv
-cargo run -p conv-native-peer --bin conv-native-peer -- --bind 127.0.0.1:7002 --seed 127.0.0.1:7001 --state bob.conv
-```
-
-Type lines to append, `/show` to inspect, and `/quit` to save and leave. Restart
-with the same state file to restore under a fresh writer identity. A stale
-`.conv.lock` may be removed only after its owning process has stopped. Native UDP
-is an unencrypted cooperative test transport.
-
-```sh
-cargo run -p conv-simulator --example partition
-cargo run -p conv-simulator --example automatic_repair
-```
-
-These examples use virtual clocks; their scenario delays are not performance
-results.
-
-## Reproduce measurements and demo
-
-```sh
-cargo build --release -p conv-native-peer --bins
-python3 scripts/run-experiments.py
-# Use the timestamped directory printed above:
-python3 scripts/report-experiments.py --directory benchmarks/raw-results/TIMESTAMP
-CONV_BENCH_BROWSER=1 pnpm --dir web test:browser --grep 'measure isolated'
-node scripts/record-demo.mjs
-```
-
-Report rendering needs Python and Matplotlib (`python3 -m pip install matplotlib`
-in a virtual environment). Run benchmarks serially on an otherwise idle host.
-The runner retains raw reports and whole-process CPU/RSS sidecars; the full suite
-includes 1,000 recovery trials. `--quick` is a smoke check and cannot qualify a
-recovery p99. Run browser measurements before regenerating the report if you
-want the latest browser result included.
-
-[Measured results](benchmarks/reports/current/report.md) include native and WASM
-merge latency, traffic at 10–200 native peers, matched full-state comparisons and
-recovery. [Methods](docs/benchmark-methodology.md) define the measurement windows,
-baselines, clock limits and reproducibility constraints. Targets remain separate
-from observations; the approximate 15 KB/s active traffic target was exceeded.
-
-Record the organic shared-paragraph scenario with five visible editors and 45
-real background browser sessions:
-
-```sh
-node scripts/record-five-browsers.mjs --organic --participants 50
-CONV_STRESS_BROWSER=1 pnpm --dir web test:browser --grep '50 browser replicas'
-```
-
-This creates `demo/organic-50-browsers.webm` with text and complete-history checks.
-Use `--participants 5` for the smaller recording. Fifty profiles need substantial
-load-generator memory; local integration does not establish WAN performance.
-See [the browser overlay](docs/browser-overlay.md).
-
-The original recording script creates `demo/conv-demo.webm` and `demo/native.json`. It records real browser collaboration/offline recovery/
-signaling outage, followed by a separately labeled real UDP experiment. Browser
-contexts in this recording are not physical devices. Generated videos stay local.
-
-## Host the application
-
-[Deployment instructions](docs/deployment.md) provide Caddy HTTPS/WSS, ephemeral
-Rust signaling and Coturn with expiring credentials. Enable Docker Desktop's
-WSL integration before trying the Compose stack here. A public host, DNS names
-and TURN public IP are required for publication. Container execution and public
-hosting have not yet been verified in this environment.
-
-For implementation details, read the [architecture](docs/architecture.md),
-[CRDT specification](docs/crdt-spec.md), [wire protocol](docs/wire-protocol.md),
-[browser adapter](docs/browser-architecture.md), [membership](docs/membership.md)
-and [original proposal](.claude/decentralized_text_editor_proposal.md).
-
-## Stress every writer
-
-```sh
-python3 scripts/stress-native.py
-```
-
-This requests 200 simultaneous native writers, rather than the ten active writers
-in the initial scale experiments. It retains failed runs, checks actual offered
-load, complete history and canonical convergence, and injects loss/partitions.
-The first nine all-writer runs failed their 30-second settling deadline despite
-achieving the edit load. They are retained under benchmarks/stress-results/.
-A separate 50-browser long-note burst also exposed adapter pressure; its failed
-state is retained. These failures must not be presented as supported high-rate
-capacity. [Stress methods and remaining gates](docs/stress-testing.md) distinguish
-local demonstrations, engine load, many-room browser load and multi-host tests.
+The project is released under the [MIT license](LICENSE). Bundled font licenses
+are in [web/public/licenses](web/public/licenses).

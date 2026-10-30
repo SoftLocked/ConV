@@ -53,6 +53,6 @@ The retained 30-edit fanout-two browser run had nearest-rank p95 visibility of 8
 
 ## Interpretation
 
-The roughly 15 KB/s target is assessed using active-window traffic, rather than diluting it with quiet settling time. Keep exact measured values and workload phases in any resume/demo statement. Short trials and a single host limit generality. Production WAN, physical-device composition/background tabs, container execution and public deployment remain separate release gates.
+The roughly 15 KB/s target is assessed using active-window traffic, rather than diluting it with quiet settling time. Keep exact measured values and workload phases in any resume/demo statement. Short trials and a single host limit generality. Physical-device composition/background tabs, WAN behavior and container execution remain unverified. Public hosting is outside the current local release scope.
 
 GNU-time resource sidecars, when present, record whole-process user/system CPU seconds and peak RSS, including preparation and report generation. They are distinct from the protocol measurement window. CPU utilisation was not collected for the initial reports lacking those sidecars.
