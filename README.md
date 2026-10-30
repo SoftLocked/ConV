@@ -1,5 +1,7 @@
 # ConV
 
+[![Checks](https://github.com/SoftLocked/ConV/actions/workflows/check.yml/badge.svg)](https://github.com/SoftLocked/ConV/actions/workflows/check.yml)
+
 ConV is a local-first collaborative plain-text editor built with Rust,
 WebAssembly, React, CodeMirror and WebRTC. Each browser owns a document replica,
 applies edits locally, and exchanges changes with peers. It supports offline
